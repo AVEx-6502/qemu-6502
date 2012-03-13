@@ -3584,7 +3584,7 @@ case "$target_arch2" in
   ;;
   6502)
     TARGET_ARCH=6502
-    target_phys_bits=32
+    target_phys_bits=64
   ;;
   *)
     echo "Unsupported target CPU"

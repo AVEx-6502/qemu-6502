@@ -67,9 +67,9 @@ static void QEMU_NORETURN arith_excp(int exc, uint64_t mask)
     dynamic_excp(EXCP_ARITH, 0);
 }
 
-void helper_printstuff (void)
+void helper_printstuff (uint32_t instruction)
 {
-	fprintf(stderr, "Estou aquiiiii!\n");
+	fprintf(stderr, "Executando: 0x%"PRIX32"!\t", instruction);
 }
 
 uint64_t helper_load_pcc (void)

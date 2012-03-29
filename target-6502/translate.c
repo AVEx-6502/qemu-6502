@@ -1764,7 +1764,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
         break;
     case 0x09:
         /* LDAH */
-    	gen_helper_printstuff();
+		{
+			TCGv_i32 tmp = tcg_temp_new_i32();
+			tcg_gen_movi_i32(tmp, insn);
+			gen_helper_printstuff(tmp);
+			tcg_temp_free_i32(tmp);
+    	}
+
         if (likely(ra != 31)) {
             if (rb != 31)
                 tcg_gen_addi_i64(cpu_ir[ra], cpu_ir[rb], disp16 << 16);

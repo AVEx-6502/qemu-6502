@@ -67,6 +67,11 @@ static void QEMU_NORETURN arith_excp(int exc, uint64_t mask)
     dynamic_excp(EXCP_ARITH, 0);
 }
 
+void helper_printstuff (void)
+{
+	fprintf(stderr, "Estou aquiiiii!\n");
+}
+
 uint64_t helper_load_pcc (void)
 {
 #ifndef CONFIG_USER_ONLY

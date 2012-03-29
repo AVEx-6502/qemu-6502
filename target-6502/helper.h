@@ -1,5 +1,7 @@
 #include "def-helper.h"
 
+DEF_HELPER_0(printstuff, void)
+
 DEF_HELPER_2(excp, void, int, int)
 DEF_HELPER_FLAGS_0(load_pcc, TCG_CALL_CONST | TCG_CALL_PURE, i64)
 

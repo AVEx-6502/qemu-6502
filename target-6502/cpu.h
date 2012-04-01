@@ -20,6 +20,8 @@
 #if !defined (__CPU_ALPHA_H__)
 #define __CPU_ALPHA_H__
 
+#include "6502_new.h"
+
 #include "config.h"
 #include "qemu-common.h"
 
@@ -38,11 +40,25 @@
 #define ICACHE_LINE_SIZE 32
 #define DCACHE_LINE_SIZE 32
 
+#ifdef USE_NEW_6502
+
+#define TARGET_PAGE_BITS 16
+#define TARGET_PHYS_ADDR_SPACE_BITS 32
+#define TARGET_VIRT_ADDR_SPACE_BITS 32
+
+
+#else
+
+
 #define TARGET_PAGE_BITS 13
 
 /* ??? EV4 has 34 phys addr bits, EV5 has 40, EV6 has 44.  */
-#define TARGET_PHYS_ADDR_SPACE_BITS	44
-#define TARGET_VIRT_ADDR_SPACE_BITS	(30 + TARGET_PAGE_BITS)
+#define TARGET_PHYS_ADDR_SPACE_BITS 44
+#define TARGET_VIRT_ADDR_SPACE_BITS (30 + TARGET_PAGE_BITS)
+
+#endif
+
+
 
 /* Alpha major type */
 enum {
@@ -141,53 +157,53 @@ enum {
 };
 
 /* FPCR bits */
-#define FPCR_SUM		(1ULL << 63)
-#define FPCR_INED		(1ULL << 62)
-#define FPCR_UNFD		(1ULL << 61)
-#define FPCR_UNDZ		(1ULL << 60)
-#define FPCR_DYN_SHIFT		58
-#define FPCR_DYN_CHOPPED	(0ULL << FPCR_DYN_SHIFT)
-#define FPCR_DYN_MINUS		(1ULL << FPCR_DYN_SHIFT)
-#define FPCR_DYN_NORMAL		(2ULL << FPCR_DYN_SHIFT)
-#define FPCR_DYN_PLUS		(3ULL << FPCR_DYN_SHIFT)
-#define FPCR_DYN_MASK		(3ULL << FPCR_DYN_SHIFT)
-#define FPCR_IOV		(1ULL << 57)
-#define FPCR_INE		(1ULL << 56)
-#define FPCR_UNF		(1ULL << 55)
-#define FPCR_OVF		(1ULL << 54)
-#define FPCR_DZE		(1ULL << 53)
-#define FPCR_INV		(1ULL << 52)
-#define FPCR_OVFD		(1ULL << 51)
-#define FPCR_DZED		(1ULL << 50)
-#define FPCR_INVD		(1ULL << 49)
-#define FPCR_DNZ		(1ULL << 48)
-#define FPCR_DNOD		(1ULL << 47)
-#define FPCR_STATUS_MASK	(FPCR_IOV | FPCR_INE | FPCR_UNF \
-				 | FPCR_OVF | FPCR_DZE | FPCR_INV)
+#define FPCR_SUM        (1ULL << 63)
+#define FPCR_INED       (1ULL << 62)
+#define FPCR_UNFD       (1ULL << 61)
+#define FPCR_UNDZ       (1ULL << 60)
+#define FPCR_DYN_SHIFT      58
+#define FPCR_DYN_CHOPPED    (0ULL << FPCR_DYN_SHIFT)
+#define FPCR_DYN_MINUS      (1ULL << FPCR_DYN_SHIFT)
+#define FPCR_DYN_NORMAL     (2ULL << FPCR_DYN_SHIFT)
+#define FPCR_DYN_PLUS       (3ULL << FPCR_DYN_SHIFT)
+#define FPCR_DYN_MASK       (3ULL << FPCR_DYN_SHIFT)
+#define FPCR_IOV        (1ULL << 57)
+#define FPCR_INE        (1ULL << 56)
+#define FPCR_UNF        (1ULL << 55)
+#define FPCR_OVF        (1ULL << 54)
+#define FPCR_DZE        (1ULL << 53)
+#define FPCR_INV        (1ULL << 52)
+#define FPCR_OVFD       (1ULL << 51)
+#define FPCR_DZED       (1ULL << 50)
+#define FPCR_INVD       (1ULL << 49)
+#define FPCR_DNZ        (1ULL << 48)
+#define FPCR_DNOD       (1ULL << 47)
+#define FPCR_STATUS_MASK    (FPCR_IOV | FPCR_INE | FPCR_UNF \
+                 | FPCR_OVF | FPCR_DZE | FPCR_INV)
 
 /* The silly software trap enables implemented by the kernel emulation.
    These are more or less architecturally required, since the real hardware
    has read-as-zero bits in the FPCR when the features aren't implemented.
    For the purposes of QEMU, we pretend the FPCR can hold everything.  */
-#define SWCR_TRAP_ENABLE_INV	(1ULL << 1)
-#define SWCR_TRAP_ENABLE_DZE	(1ULL << 2)
-#define SWCR_TRAP_ENABLE_OVF	(1ULL << 3)
-#define SWCR_TRAP_ENABLE_UNF	(1ULL << 4)
-#define SWCR_TRAP_ENABLE_INE	(1ULL << 5)
-#define SWCR_TRAP_ENABLE_DNO	(1ULL << 6)
-#define SWCR_TRAP_ENABLE_MASK	((1ULL << 7) - (1ULL << 1))
+#define SWCR_TRAP_ENABLE_INV    (1ULL << 1)
+#define SWCR_TRAP_ENABLE_DZE    (1ULL << 2)
+#define SWCR_TRAP_ENABLE_OVF    (1ULL << 3)
+#define SWCR_TRAP_ENABLE_UNF    (1ULL << 4)
+#define SWCR_TRAP_ENABLE_INE    (1ULL << 5)
+#define SWCR_TRAP_ENABLE_DNO    (1ULL << 6)
+#define SWCR_TRAP_ENABLE_MASK   ((1ULL << 7) - (1ULL << 1))
 
-#define SWCR_MAP_DMZ		(1ULL << 12)
-#define SWCR_MAP_UMZ		(1ULL << 13)
-#define SWCR_MAP_MASK		(SWCR_MAP_DMZ | SWCR_MAP_UMZ)
+#define SWCR_MAP_DMZ        (1ULL << 12)
+#define SWCR_MAP_UMZ        (1ULL << 13)
+#define SWCR_MAP_MASK       (SWCR_MAP_DMZ | SWCR_MAP_UMZ)
 
-#define SWCR_STATUS_INV		(1ULL << 17)
-#define SWCR_STATUS_DZE		(1ULL << 18)
-#define SWCR_STATUS_OVF		(1ULL << 19)
-#define SWCR_STATUS_UNF		(1ULL << 20)
-#define SWCR_STATUS_INE		(1ULL << 21)
-#define SWCR_STATUS_DNO		(1ULL << 22)
-#define SWCR_STATUS_MASK	((1ULL << 23) - (1ULL << 17))
+#define SWCR_STATUS_INV     (1ULL << 17)
+#define SWCR_STATUS_DZE     (1ULL << 18)
+#define SWCR_STATUS_OVF     (1ULL << 19)
+#define SWCR_STATUS_UNF     (1ULL << 20)
+#define SWCR_STATUS_INE     (1ULL << 21)
+#define SWCR_STATUS_DNO     (1ULL << 22)
+#define SWCR_STATUS_MASK    ((1ULL << 23) - (1ULL << 17))
 
 #define SWCR_MASK  (SWCR_TRAP_ENABLE_MASK | SWCR_MAP_MASK | SWCR_STATUS_MASK)
 
@@ -319,9 +335,9 @@ enum {
 };
 
 /* Alpha-specific interrupt pending bits.  */
-#define CPU_INTERRUPT_TIMER	CPU_INTERRUPT_TGT_EXT_0
-#define CPU_INTERRUPT_SMP	CPU_INTERRUPT_TGT_EXT_1
-#define CPU_INTERRUPT_MCHK	CPU_INTERRUPT_TGT_EXT_2
+#define CPU_INTERRUPT_TIMER CPU_INTERRUPT_TGT_EXT_0
+#define CPU_INTERRUPT_SMP   CPU_INTERRUPT_TGT_EXT_1
+#define CPU_INTERRUPT_MCHK  CPU_INTERRUPT_TGT_EXT_2
 
 /* OSF/1 Page table bits.  */
 enum {

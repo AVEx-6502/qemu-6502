@@ -24,6 +24,8 @@
 #include "cpu.h"
 #include "softfloat.h"
 
+#include "6502_new.h"
+
 uint64_t cpu_alpha_load_fpcr (CPUState *env)
 {
     uint64_t r = 0;
@@ -199,6 +201,7 @@ void swap_shadow_regs(CPUState *env)
     env->shadow[7] = i7;
 }
 
+#ifndef USE_NEW_6502
 /* Returns the OSF/1 entMM failure indication, or -1 on success.  */
 static int get_physical_address(CPUState *env, target_ulong addr,
                                 int prot_need, int mmu_idx,
@@ -305,19 +308,27 @@ static int get_physical_address(CPUState *env, target_ulong addr,
     *pprot = prot;
     return ret;
 }
+#endif
+
 
 target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 {
+#ifndef USE_NEW_6502
     target_ulong phys;
     int prot, fail;
 
     fail = get_physical_address(env, addr, 0, 0, &phys, &prot);
     return (fail >= 0 ? -1 : phys);
+#else
+    return addr & TARGET_PAGE_MASK;
+#endif
 }
 
 int cpu_alpha_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,
                                int mmu_idx)
 {
+#ifndef USE_NEW_6502
+
     target_ulong phys;
     int prot, fail;
 
@@ -332,6 +343,14 @@ int cpu_alpha_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,
 
     tlb_set_page(env, addr & TARGET_PAGE_MASK, phys & TARGET_PAGE_MASK,
                  prot, mmu_idx, TARGET_PAGE_SIZE);
+
+#else
+
+    tlb_set_page(env, addr & TARGET_PAGE_MASK, addr & TARGET_PAGE_MASK,
+                 PAGE_READ | PAGE_WRITE | PAGE_EXEC, mmu_idx, TARGET_PAGE_SIZE);
+
+#endif
+
     return 0;
 }
 #endif /* USER_ONLY */

@@ -6,6 +6,10 @@
  * ??? Sparse memory access not implemented.
  */
 
+#include "6502_new.h"
+
+#ifndef USE_NEW_6502
+
 #include "config.h"
 #include "6502_sys.h"
 #include "qemu-log.h"
@@ -130,3 +134,5 @@ void alpha_pci_vga_setup(PCIBus *pci_bus)
         pci_vga_init(pci_bus);
     }
 }
+
+#endif

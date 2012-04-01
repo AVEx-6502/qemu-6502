@@ -3,6 +3,10 @@
 #ifndef HW_ALPHA_H
 #define HW_ALPHA_H 1
 
+#include "6502_new.h"
+
+#ifndef USE_NEW_6502
+
 #include "pci.h"
 #include "pci_host.h"
 #include "ide.h"
@@ -21,5 +25,7 @@ extern const MemoryRegionOps alpha_pci_conf1_ops;
 extern const MemoryRegionOps alpha_pci_iack_ops;
 
 void alpha_pci_vga_setup(PCIBus *pci_bus);
+
+#endif
 
 #endif

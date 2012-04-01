@@ -6,6 +6,11 @@
  * This work is licensed under the GNU GPL license version 2 or later.
  */
 
+#include "6502_new.h"
+
+
+#ifndef USE_NEW_6502
+
 #include "cpu.h"
 #include "exec-all.h"
 #include "hw.h"
@@ -830,3 +835,5 @@ static void typhoon_register_types(void)
 }
 
 type_init(typhoon_register_types)
+
+#endif

@@ -899,7 +899,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
         tcg_temp_free_i64(tmp2);
         tcg_temp_free_i32(tmp);
     }
-    
+
     if (insn == 0) {
         tcg_gen_movi_i64(cpu_pc, ctx->pc-4);
         return EXIT_PC_UPDATED;

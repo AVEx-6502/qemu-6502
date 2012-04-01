@@ -1,3 +1,4 @@
+
 /*
  * QEMU Alpha DP264/CLIPPER hardware system emulator.
  *
@@ -5,6 +6,212 @@
  * variants because CLIPPER doesn't have an SMC669 SuperIO controller
  * that we need to emulate as well.
  */
+
+#include "6502_new.h"
+
+#ifdef USE_NEW_6502
+
+#include "hw.h"
+#include "boards.h"
+#include "loader.h"
+#include "sysemu.h"
+#include "exec-memory.h"
+
+
+#define BIOS_FILENAME      "6502_bios.rom"
+
+
+static uint64_t tia_read(void *opaque, target_phys_addr_t addr, unsigned size)
+{
+    fprintf(stderr, "Reading TIA address %llu.\n", (unsigned long long)addr);
+    return 0;
+}
+
+
+static void tia_write(void *opaque, target_phys_addr_t addr, uint64_t value, unsigned size)
+{
+    fprintf(stderr, "Writting %llu in TIA address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
+}
+
+
+static uint64_t riot_read(void *opaque, target_phys_addr_t addr, unsigned size)
+{
+    fprintf(stderr, "Reading RIOT address %llu.\n", (unsigned long long)addr);
+    return 0;
+}
+
+
+static void riot_write(void *opaque, target_phys_addr_t addr,uint64_t value, unsigned size)
+{
+    fprintf(stderr, "Writting %llu in RIOT address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
+}
+
+
+
+static const MemoryRegionOps tia_ops = {
+    .read = tia_read,
+    .write = tia_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = {
+        .min_access_size = 1,
+        .max_access_size = 1,
+    },
+    .impl = {
+        .min_access_size = 1,
+        .max_access_size = 1,
+    },
+};
+
+
+static const MemoryRegionOps riot_ops = {
+    .read = riot_read,
+    .write = riot_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = {
+        .min_access_size = 1,
+        .max_access_size = 1,
+    },
+    .impl = {
+        .min_access_size = 1,
+        .max_access_size = 1,
+    },
+};
+
+
+
+
+static void mos6502_init(ram_addr_t ram_size,
+                         const char *boot_device,
+                         const char *kernel_filename,
+                         const char *kernel_cmdline,
+                         const char *initrd_filename,
+                         const char *cpu_model)
+{
+    CPUState *cpu;
+
+    // TODO: Clean this after changing CPUState struct
+    cpu = cpu_init("ev67");
+    cpu->trap_arg0 = ram_size; //0x10000;
+    cpu->trap_arg1 = 0;
+    cpu->trap_arg2 = 1;
+
+    MemoryRegion *address_space = get_system_memory();
+
+
+#if 0   // This should work but it doesn't...
+    /*
+     * Address Range  |   Function
+     * ---------------+------------------
+     * $0000 - $007F  | TIA registers
+     * $0080 - $00FF  |     RAM
+     * $0200 - $02FF  | RIOT registers
+     * $1000 - $1FFF  |     ROM
+     */
+
+    // TIA registers
+    MemoryRegion *tia_regs = g_malloc(sizeof(*tia_regs));
+    memory_region_init_io(tia_regs, &tia_ops, cpu, "6502.tia_regs", 0x007F - 0x0000 + 1);
+    memory_region_add_subregion(address_space, 0x0000, tia_regs);
+
+    // RAM
+    MemoryRegion *ram = g_malloc(sizeof(*ram));
+    memory_region_init_ram(ram, "6502.ram", 0x00FF - 0x0080 + 1);
+    vmstate_register_ram_global(ram);
+    memory_region_add_subregion(address_space, 0x0080, ram);
+
+    // Unused space between RAM and RIOT registers
+    MemoryRegion *unused1 = g_malloc(sizeof(*unused1));;
+    memory_region_init_reservation(unused1, "6502.unused1", 0x01FF - 0x0100 + 1);
+    memory_region_add_subregion(address_space, 0x0100, unused1);
+
+    // RIOT registers
+    MemoryRegion *riot_regs = g_malloc(sizeof(*riot_regs));;
+    memory_region_init_io(riot_regs, &riot_ops, cpu, "6502.riot_regs", 0x02FF - 0x0200 + 1);
+    memory_region_add_subregion(address_space, 0x0200, riot_regs);
+
+    // Unused space between RIOT registers and ROM
+    MemoryRegion *unused2 = g_malloc(sizeof(*unused2));
+    memory_region_init_reservation(unused2, "6502.unused2", 0x0FFF - 0x0300 + 1);
+    memory_region_add_subregion(address_space, 0x0300, unused2);
+
+    // ROM
+    MemoryRegion *rom = g_malloc(sizeof(*rom));
+    memory_region_init_ram(rom, "6502.rom", 0x1FFF - 0x1000 + 1);
+    memory_region_set_readonly(rom, true);
+    vmstate_register_ram_global(rom);
+    memory_region_add_subregion(address_space, 0x1000, rom);
+
+    // Rest of the address space
+    MemoryRegion *unused3 = g_malloc(sizeof(*unused3));
+    memory_region_init_reservation(unused3, "6502.unused3", (ram_size - 1) - 0x2000 + 1);
+    memory_region_add_subregion(address_space, 0x2000, unused3);
+
+    // Load ROM
+    if(bios_name == NULL) {
+        bios_name = BIOS_FILENAME;
+    }
+
+    if(load_image_targphys(bios_name, 0x1000, 0x1FFF - 0x1000 + 1) < 0) {
+        fprintf(stderr, "Error loading bios file: %s\n", bios_name);
+        exit(-1);
+    }
+#else
+
+    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    memory_region_init_ram(ram, "6502.ram", 0x10000);   // 64 KB of RAM
+    vmstate_register_ram_global(ram);
+    memory_region_add_subregion(address_space, 0, ram);
+
+    // Load ROM
+    if(bios_name == NULL) {
+        bios_name = BIOS_FILENAME;
+    }
+
+    // 4 KB of BIOS starting at 0x1000
+    if(load_image_targphys(bios_name, 0x1000, 0x1FFF - 0x1000 + 1) < 0) {
+        fprintf(stderr, "Error loading bios file: %s\nRunning with empty memory.\n", bios_name);
+        //exit(-1);
+    }
+
+#endif
+
+
+    // TODO: Clean-up
+    cpu->pal_mode = 1;
+    cpu->pc = 0x1000;   // BIOS address
+    cpu->palbr = 0x1000;
+
+    fprintf(stderr, "Final do mos6502_init.\n");
+
+}
+
+static QEMUMachine mos6502_machine = {
+    .name = "mos6502",
+    .desc = "MOS 6502 CPU",
+    .init = mos6502_init,
+    .max_cpus = 1,
+    .is_default = 1,
+};
+
+static void mos6502_machine_init(void)
+{
+    qemu_register_machine(&mos6502_machine);
+}
+
+machine_init(mos6502_machine_init);
+
+
+
+
+
+// -----------------------------------------------------------------------------
+
+
+
+
+
+
+#else
 
 #include "hw.h"
 #include "elf.h"
@@ -178,3 +385,5 @@ static void clipper_machine_init(void)
 }
 
 machine_init(clipper_machine_init);
+
+#endif

@@ -894,14 +894,14 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
         TCGv_i32 tmp = tcg_temp_new_i32();
         TCGv_i64 tmp2 = tcg_temp_new_i64();
         tcg_gen_movi_i32(tmp, insn);
-        tcg_gen_movi_i64(tmp2, ctx->env->pc-4);
+        tcg_gen_movi_i64(tmp2, ctx->pc-4);
         gen_helper_printstuff(tmp2, tmp);
         tcg_temp_free_i64(tmp2);
         tcg_temp_free_i32(tmp);
     }
     
     if (insn == 0) {
-        ctx->env->pc -= 4;
+        tcg_gen_movi_i64(cpu_pc, ctx->pc-4);
         return EXIT_PC_UPDATED;
     } else
         return NO_EXIT;

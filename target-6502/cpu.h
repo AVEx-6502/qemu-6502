@@ -236,6 +236,22 @@ enum {
 
 typedef struct CPUAlphaState CPUAlphaState;
 
+/*
+typedef struct CPU6502State {
+    // "General" Registers
+    uint8_t     ac;
+    uint8_t     x;
+    uint8_t     y;
+
+    uint16_t    pc;
+    uint8_t     sr;     // These are the flags: NV-BDIZC
+    uint8_t     sp;
+
+    // Those resources are used only in Qemu core
+    CPU_COMMON
+} CPU6502State;
+*/
+
 struct CPUAlphaState {
     uint64_t ir[31];
     float64 fir[31];

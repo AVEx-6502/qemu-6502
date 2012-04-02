@@ -907,6 +907,23 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
         return NO_EXIT;
 }
 
+#if 0
+// Load operand for "X,ind" addressing mode (looks like black magic but it's real!)...
+// In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
+// In high elvish (x86 assembly syntax), this means [[X+[ 0x?? ]]].
+static inline void gen_load_xind(unsigned zpg_imm)
+{
+    TGVv_i32 zpg = tcg_temp_new_i32();
+    tcg_gen_movi_i32(zpg, zpg_imm);
+    tcg_gen_qemu_ld8u(zpg_tmp, zpg, ????);
+    tcg_gen_addi_i64(zpg_tmp, cpu_x);
+    tcg_gen_qemu_ld16u(zpg_tmp, zpg_tmp, ????);
+    tcg_gen_qemu_ld8u(op_this_instr, zpg_tmp, ????);
+    tcg_temp_free_i32(zpg);
+}
+#endif
+
+
 static inline void gen_intermediate_code_internal(CPUState *env,
                                                   TranslationBlock *tb,
                                                   int search_pc)

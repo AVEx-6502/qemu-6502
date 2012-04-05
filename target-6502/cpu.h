@@ -253,9 +253,20 @@ typedef struct CPU6502State {
 */
 
 struct CPUAlphaState {
+    // "General" Registers
+    uint8_t     ac;
+    uint8_t     x;
+    uint8_t     y;
+
+    uint8_t     sr;     // These are the flags: NV-BDIZC
+    uint8_t     sp;
+
+    uint64_t    pc;     // This is temporarily 64 bits so that we don't break the remaining Alpha code...
+
+
+
     uint64_t ir[31];
     float64 fir[31];
-    uint64_t pc;
     uint64_t unique;
     uint64_t lock_addr;
     uint64_t lock_st_addr;

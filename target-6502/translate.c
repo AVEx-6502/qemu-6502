@@ -71,11 +71,13 @@ typedef enum {
     EXIT_NORETURN,
 } ExitStatus;
 
-/* global register indexes */
+// The following are the register variable as taken by TCG functions
 static TCGv_ptr cpu_env;
+static TCGv cpu_pc;
+
+
 static TCGv cpu_ir[31];
 static TCGv cpu_fir[31];
-static TCGv cpu_pc;
 static TCGv cpu_lock_addr;
 static TCGv cpu_lock_st_addr;
 static TCGv cpu_lock_value;
@@ -166,35 +168,10 @@ static inline ExitStatus gen_invalid(DisasContext *ctx)
     return gen_excp(ctx, EXCP_OPCDEC, 0);
 }
 
-static inline void gen_qemu_ldf(TCGv t0, TCGv t1, int flags)
-{
-    TCGv tmp = tcg_temp_new();
-    TCGv_i32 tmp32 = tcg_temp_new_i32();
-    tcg_gen_qemu_ld32u(tmp, t1, flags);
-    tcg_gen_trunc_i64_i32(tmp32, tmp);
-    gen_helper_memory_to_f(t0, tmp32);
-    tcg_temp_free_i32(tmp32);
-    tcg_temp_free(tmp);
-}
 
-static inline void gen_qemu_ldg(TCGv t0, TCGv t1, int flags)
-{
-    TCGv tmp = tcg_temp_new();
-    tcg_gen_qemu_ld64(tmp, t1, flags);
-    gen_helper_memory_to_g(t0, tmp);
-    tcg_temp_free(tmp);
-}
 
-static inline void gen_qemu_lds(TCGv t0, TCGv t1, int flags)
-{
-    TCGv tmp = tcg_temp_new();
-    TCGv_i32 tmp32 = tcg_temp_new_i32();
-    tcg_gen_qemu_ld32u(tmp, t1, flags);
-    tcg_gen_trunc_i64_i32(tmp32, tmp);
-    gen_helper_memory_to_s(t0, tmp32);
-    tcg_temp_free_i32(tmp32);
-    tcg_temp_free(tmp);
-}
+
+
 
 static inline void gen_qemu_ldl_l(TCGv t0, TCGv t1, int flags)
 {
@@ -244,35 +221,8 @@ static inline void gen_load_mem(DisasContext *ctx,
     tcg_temp_free(addr);
 }
 
-static inline void gen_qemu_stf(TCGv t0, TCGv t1, int flags)
-{
-    TCGv_i32 tmp32 = tcg_temp_new_i32();
-    TCGv tmp = tcg_temp_new();
-    gen_helper_f_to_memory(tmp32, t0);
-    tcg_gen_extu_i32_i64(tmp, tmp32);
-    tcg_gen_qemu_st32(tmp, t1, flags);
-    tcg_temp_free(tmp);
-    tcg_temp_free_i32(tmp32);
-}
 
-static inline void gen_qemu_stg(TCGv t0, TCGv t1, int flags)
-{
-    TCGv tmp = tcg_temp_new();
-    gen_helper_g_to_memory(tmp, t0);
-    tcg_gen_qemu_st64(tmp, t1, flags);
-    tcg_temp_free(tmp);
-}
 
-static inline void gen_qemu_sts(TCGv t0, TCGv t1, int flags)
-{
-    TCGv_i32 tmp32 = tcg_temp_new_i32();
-    TCGv tmp = tcg_temp_new();
-    gen_helper_s_to_memory(tmp32, t0);
-    tcg_gen_extu_i32_i64(tmp, tmp32);
-    tcg_gen_qemu_st32(tmp, t1, flags);
-    tcg_temp_free(tmp);
-    tcg_temp_free_i32(tmp32);
-}
 
 static inline void gen_store_mem(DisasContext *ctx,
                                  void (*tcg_gen_qemu_store)(TCGv t0, TCGv t1,
@@ -330,245 +280,15 @@ static int use_goto_tb(DisasContext *ctx, uint64_t dest)
 #define QUAL_S          0x400   /* Software completion enable */
 #define QUAL_I          0x200   /* Inexact detection enable */
 
-static void gen_qual_roundmode(DisasContext *ctx, int fn11)
-{
-    TCGv_i32 tmp;
-
-    fn11 &= QUAL_RM_MASK;
-    if (fn11 == ctx->tb_rm) {
-        return;
-    }
-    ctx->tb_rm = fn11;
-
-    tmp = tcg_temp_new_i32();
-    switch (fn11) {
-    case QUAL_RM_N:
-        tcg_gen_movi_i32(tmp, float_round_nearest_even);
-        break;
-    case QUAL_RM_C:
-        tcg_gen_movi_i32(tmp, float_round_to_zero);
-        break;
-    case QUAL_RM_M:
-        tcg_gen_movi_i32(tmp, float_round_down);
-        break;
-    case QUAL_RM_D:
-        tcg_gen_ld8u_i32(tmp, cpu_env, offsetof(CPUState, fpcr_dyn_round));
-        break;
-    }
-
-#if defined(CONFIG_SOFTFLOAT_INLINE)
-    /* ??? The "softfloat.h" interface is to call set_float_rounding_mode.
-       With CONFIG_SOFTFLOAT that expands to an out-of-line call that just
-       sets the one field.  */
-    tcg_gen_st8_i32(tmp, cpu_env,
-                    offsetof(CPUState, fp_status.float_rounding_mode));
-#else
-    gen_helper_setroundmode(tmp);
-#endif
-
-    tcg_temp_free_i32(tmp);
-}
-
-static void gen_qual_flushzero(DisasContext *ctx, int fn11)
-{
-    TCGv_i32 tmp;
-
-    fn11 &= QUAL_U;
-    if (fn11 == ctx->tb_ftz) {
-        return;
-    }
-    ctx->tb_ftz = fn11;
-
-    tmp = tcg_temp_new_i32();
-    if (fn11) {
-        /* Underflow is enabled, use the FPCR setting.  */
-        tcg_gen_ld8u_i32(tmp, cpu_env, offsetof(CPUState, fpcr_flush_to_zero));
-    } else {
-        /* Underflow is disabled, force flush-to-zero.  */
-        tcg_gen_movi_i32(tmp, 1);
-    }
-
-#if defined(CONFIG_SOFTFLOAT_INLINE)
-    tcg_gen_st8_i32(tmp, cpu_env,
-                    offsetof(CPUState, fp_status.flush_to_zero));
-#else
-    gen_helper_setflushzero(tmp);
-#endif
-
-    tcg_temp_free_i32(tmp);
-}
-
-static TCGv gen_ieee_input(int reg, int fn11, int is_cmp)
-{
-    TCGv val = tcg_temp_new();
-    if (reg == 31) {
-        tcg_gen_movi_i64(val, 0);
-    } else if (fn11 & QUAL_S) {
-        gen_helper_ieee_input_s(val, cpu_fir[reg]);
-    } else if (is_cmp) {
-        gen_helper_ieee_input_cmp(val, cpu_fir[reg]);
-    } else {
-        gen_helper_ieee_input(val, cpu_fir[reg]);
-    }
-    return val;
-}
-
-static void gen_fp_exc_clear(void)
-{
-#if defined(CONFIG_SOFTFLOAT_INLINE)
-    TCGv_i32 zero = tcg_const_i32(0);
-    tcg_gen_st8_i32(zero, cpu_env,
-                    offsetof(CPUState, fp_status.float_exception_flags));
-    tcg_temp_free_i32(zero);
-#else
-    gen_helper_fp_exc_clear();
-#endif
-}
-
-static void gen_fp_exc_raise_ignore(int rc, int fn11, int ignore)
-{
-    /* ??? We ought to be able to do something with imprecise exceptions.
-       E.g. notice we're still in the trap shadow of something within the
-       TB and do not generate the code to signal the exception; end the TB
-       when an exception is forced to arrive, either by consumption of a
-       register value or TRAPB or EXCB.  */
-    TCGv_i32 exc = tcg_temp_new_i32();
-    TCGv_i32 reg;
-
-#if defined(CONFIG_SOFTFLOAT_INLINE)
-    tcg_gen_ld8u_i32(exc, cpu_env,
-                     offsetof(CPUState, fp_status.float_exception_flags));
-#else
-    gen_helper_fp_exc_get(exc);
-#endif
-
-    if (ignore) {
-        tcg_gen_andi_i32(exc, exc, ~ignore);
-    }
-
-    /* ??? Pass in the regno of the destination so that the helper can
-       set EXC_MASK, which contains a bitmask of destination registers
-       that have caused arithmetic traps.  A simple userspace emulation
-       does not require this.  We do need it for a guest kernel's entArith,
-       or if we were to do something clever with imprecise exceptions.  */
-    reg = tcg_const_i32(rc + 32);
-
-    if (fn11 & QUAL_S) {
-        gen_helper_fp_exc_raise_s(exc, reg);
-    } else {
-        gen_helper_fp_exc_raise(exc, reg);
-    }
-
-    tcg_temp_free_i32(reg);
-    tcg_temp_free_i32(exc);
-}
-
-static inline void gen_fp_exc_raise(int rc, int fn11)
-{
-    gen_fp_exc_raise_ignore(rc, fn11, fn11 & QUAL_I ? 0 : float_flag_inexact);
-}
 
 
-#define FARITH2(name)                                   \
-static inline void glue(gen_f, name)(int rb, int rc)    \
-{                                                       \
-    if (unlikely(rc == 31)) {                           \
-        return;                                         \
-    }                                                   \
-    if (rb != 31) {                                     \
-        gen_helper_ ## name (cpu_fir[rc], cpu_fir[rb]); \
-    } else {                                                \
-        TCGv tmp = tcg_const_i64(0);                    \
-        gen_helper_ ## name (cpu_fir[rc], tmp);         \
-        tcg_temp_free(tmp);                             \
-    }                                                   \
-}
-
-/* ??? VAX instruction qualifiers ignored.  */
-FARITH2(sqrtf)
-FARITH2(sqrtg)
-FARITH2(cvtgf)
-FARITH2(cvtgq)
-FARITH2(cvtqf)
-FARITH2(cvtqg)
-
-static void gen_ieee_arith2(DisasContext *ctx, void (*helper)(TCGv, TCGv),
-                            int rb, int rc, int fn11)
-{
-    TCGv vb;
-
-    /* ??? This is wrong: the instruction is not a nop, it still may
-       raise exceptions.  */
-    if (unlikely(rc == 31)) {
-        return;
-    }
-
-    gen_qual_roundmode(ctx, fn11);
-    gen_qual_flushzero(ctx, fn11);
-    gen_fp_exc_clear();
-
-    vb = gen_ieee_input(rb, fn11, 0);
-    helper(cpu_fir[rc], vb);
-    tcg_temp_free(vb);
-
-    gen_fp_exc_raise(rc, fn11);
-}
-
-#define IEEE_ARITH2(name)                                       \
-static inline void glue(gen_f, name)(DisasContext *ctx,         \
-                                     int rb, int rc, int fn11)  \
-{                                                               \
-    gen_ieee_arith2(ctx, gen_helper_##name, rb, rc, fn11);      \
-}
-IEEE_ARITH2(sqrts)
-IEEE_ARITH2(sqrtt)
-IEEE_ARITH2(cvtst)
-IEEE_ARITH2(cvtts)
 
 
-static void gen_ieee_intcvt(DisasContext *ctx, void (*helper)(TCGv, TCGv),
-                            int rb, int rc, int fn11)
-{
-    TCGv vb;
 
-    /* ??? This is wrong: the instruction is not a nop, it still may
-       raise exceptions.  */
-    if (unlikely(rc == 31)) {
-        return;
-    }
 
-    gen_qual_roundmode(ctx, fn11);
 
-    if (rb == 31) {
-        vb = tcg_const_i64(0);
-    } else {
-        vb = cpu_fir[rb];
-    }
 
-    /* The only exception that can be raised by integer conversion
-       is inexact.  Thus we only need to worry about exceptions when
-       inexact handling is requested.  */
-    if (fn11 & QUAL_I) {
-        gen_fp_exc_clear();
-        helper(cpu_fir[rc], vb);
-        gen_fp_exc_raise(rc, fn11);
-    } else {
-        helper(cpu_fir[rc], vb);
-    }
 
-    if (rb == 31) {
-        tcg_temp_free(vb);
-    }
-}
-
-#define IEEE_INTCVT(name)                                       \
-static inline void glue(gen_f, name)(DisasContext *ctx,         \
-                                     int rb, int rc, int fn11)  \
-{                                                               \
-    gen_ieee_intcvt(ctx, gen_helper_##name, rb, rc, fn11);      \
-}
-IEEE_INTCVT(cvtqs)
-IEEE_INTCVT(cvtqt)
 
 static void gen_cpys_internal(int ra, int rb, int rc, int inv_a, uint64_t mask)
 {
@@ -645,121 +365,8 @@ static inline void gen_fcpyse(int ra, int rb, int rc)
     gen_cpys_internal(ra, rb, rc, 0, 0xFFF0000000000000ULL);
 }
 
-#define FARITH3(name)                                           \
-static inline void glue(gen_f, name)(int ra, int rb, int rc)    \
-{                                                               \
-    TCGv va, vb;                                                \
-                                                                \
-    if (unlikely(rc == 31)) {                                   \
-        return;                                                 \
-    }                                                           \
-    if (ra == 31) {                                             \
-        va = tcg_const_i64(0);                                  \
-    } else {                                                    \
-        va = cpu_fir[ra];                                       \
-    }                                                           \
-    if (rb == 31) {                                             \
-        vb = tcg_const_i64(0);                                  \
-    } else {                                                    \
-        vb = cpu_fir[rb];                                       \
-    }                                                           \
-                                                                \
-    gen_helper_ ## name (cpu_fir[rc], va, vb);                  \
-                                                                \
-    if (ra == 31) {                                             \
-        tcg_temp_free(va);                                      \
-    }                                                           \
-    if (rb == 31) {                                             \
-        tcg_temp_free(vb);                                      \
-    }                                                           \
-}
 
-/* ??? VAX instruction qualifiers ignored.  */
-FARITH3(addf)
-FARITH3(subf)
-FARITH3(mulf)
-FARITH3(divf)
-FARITH3(addg)
-FARITH3(subg)
-FARITH3(mulg)
-FARITH3(divg)
-FARITH3(cmpgeq)
-FARITH3(cmpglt)
-FARITH3(cmpgle)
 
-static void gen_ieee_arith3(DisasContext *ctx,
-                            void (*helper)(TCGv, TCGv, TCGv),
-                            int ra, int rb, int rc, int fn11)
-{
-    TCGv va, vb;
-
-    /* ??? This is wrong: the instruction is not a nop, it still may
-       raise exceptions.  */
-    if (unlikely(rc == 31)) {
-        return;
-    }
-
-    gen_qual_roundmode(ctx, fn11);
-    gen_qual_flushzero(ctx, fn11);
-    gen_fp_exc_clear();
-
-    va = gen_ieee_input(ra, fn11, 0);
-    vb = gen_ieee_input(rb, fn11, 0);
-    helper(cpu_fir[rc], va, vb);
-    tcg_temp_free(va);
-    tcg_temp_free(vb);
-
-    gen_fp_exc_raise(rc, fn11);
-}
-
-#define IEEE_ARITH3(name)                                               \
-static inline void glue(gen_f, name)(DisasContext *ctx,                 \
-                                     int ra, int rb, int rc, int fn11)  \
-{                                                                       \
-    gen_ieee_arith3(ctx, gen_helper_##name, ra, rb, rc, fn11);          \
-}
-IEEE_ARITH3(adds)
-IEEE_ARITH3(subs)
-IEEE_ARITH3(muls)
-IEEE_ARITH3(divs)
-IEEE_ARITH3(addt)
-IEEE_ARITH3(subt)
-IEEE_ARITH3(mult)
-IEEE_ARITH3(divt)
-
-static void gen_ieee_compare(DisasContext *ctx,
-                             void (*helper)(TCGv, TCGv, TCGv),
-                             int ra, int rb, int rc, int fn11)
-{
-    TCGv va, vb;
-
-    /* ??? This is wrong: the instruction is not a nop, it still may
-       raise exceptions.  */
-    if (unlikely(rc == 31)) {
-        return;
-    }
-
-    gen_fp_exc_clear();
-
-    va = gen_ieee_input(ra, fn11, 1);
-    vb = gen_ieee_input(rb, fn11, 1);
-    helper(cpu_fir[rc], va, vb);
-    tcg_temp_free(va);
-    tcg_temp_free(vb);
-
-    gen_fp_exc_raise(rc, fn11);
-}
-
-#define IEEE_CMP3(name)                                                 \
-static inline void glue(gen_f, name)(DisasContext *ctx,                 \
-                                     int ra, int rb, int rc, int fn11)  \
-{                                                                       \
-    gen_ieee_compare(ctx, gen_helper_##name, ra, rb, rc, fn11);         \
-}
-IEEE_CMP3(cmptun)
-IEEE_CMP3(cmpteq)
-IEEE_CMP3(cmptlt)
-IEEE_CMP3(cmptle)
 
 static inline uint64_t zapnot_mask(uint8_t lit)
 {
@@ -773,124 +380,13 @@ static inline uint64_t zapnot_mask(uint8_t lit)
     return mask;
 }
 
-/* Implement zapnot with an immediate operand, which expands to some
-   form of immediate AND.  This is a basic building block in the
-   definition of many of the other byte manipulation instructions.  */
-static void gen_zapnoti(TCGv dest, TCGv src, uint8_t lit)
-{
-    switch (lit) {
-    case 0x00:
-        tcg_gen_movi_i64(dest, 0);
-        break;
-    case 0x01:
-        tcg_gen_ext8u_i64(dest, src);
-        break;
-    case 0x03:
-        tcg_gen_ext16u_i64(dest, src);
-        break;
-    case 0x0f:
-        tcg_gen_ext32u_i64(dest, src);
-        break;
-    case 0xff:
-        tcg_gen_mov_i64(dest, src);
-        break;
-    default:
-        tcg_gen_andi_i64 (dest, src, zapnot_mask (lit));
-        break;
-    }
-}
-
-static inline void gen_zapnot(int ra, int rb, int rc, int islit, uint8_t lit)
-{
-    if (unlikely(rc == 31))
-        return;
-    else if (unlikely(ra == 31))
-        tcg_gen_movi_i64(cpu_ir[rc], 0);
-    else if (islit)
-        gen_zapnoti(cpu_ir[rc], cpu_ir[ra], lit);
-    else
-        gen_helper_zapnot (cpu_ir[rc], cpu_ir[ra], cpu_ir[rb]);
-}
-
-static inline void gen_zap(int ra, int rb, int rc, int islit, uint8_t lit)
-{
-    if (unlikely(rc == 31))
-        return;
-    else if (unlikely(ra == 31))
-        tcg_gen_movi_i64(cpu_ir[rc], 0);
-    else if (islit)
-        gen_zapnoti(cpu_ir[rc], cpu_ir[ra], ~lit);
-    else
-        gen_helper_zap (cpu_ir[rc], cpu_ir[ra], cpu_ir[rb]);
-}
-
-
-
-
-/* Code to call arith3 helpers */
-#define ARITH3(name)                                                  \
-static inline void glue(gen_, name)(int ra, int rb, int rc, int islit,\
-                                    uint8_t lit)                      \
-{                                                                     \
-    if (unlikely(rc == 31))                                           \
-        return;                                                       \
-                                                                      \
-    if (ra != 31) {                                                   \
-        if (islit) {                                                  \
-            TCGv tmp = tcg_const_i64(lit);                            \
-            gen_helper_ ## name(cpu_ir[rc], cpu_ir[ra], tmp);         \
-            tcg_temp_free(tmp);                                       \
-        } else                                                        \
-            gen_helper_ ## name (cpu_ir[rc], cpu_ir[ra], cpu_ir[rb]); \
-    } else {                                                          \
-        TCGv tmp1 = tcg_const_i64(0);                                 \
-        if (islit) {                                                  \
-            TCGv tmp2 = tcg_const_i64(lit);                           \
-            gen_helper_ ## name (cpu_ir[rc], tmp1, tmp2);             \
-            tcg_temp_free(tmp2);                                      \
-        } else                                                        \
-            gen_helper_ ## name (cpu_ir[rc], tmp1, cpu_ir[rb]);       \
-        tcg_temp_free(tmp1);                                          \
-    }                                                                 \
-}
-ARITH3(cmpbge)
-ARITH3(addlv)
-ARITH3(sublv)
-ARITH3(addqv)
-ARITH3(subqv)
-ARITH3(umulh)
-ARITH3(mullv)
-ARITH3(mulqv)
-ARITH3(minub8)
-ARITH3(minsb8)
-ARITH3(minuw4)
-ARITH3(minsw4)
-ARITH3(maxub8)
-ARITH3(maxsb8)
-ARITH3(maxuw4)
-ARITH3(maxsw4)
-ARITH3(perr)
-
-#define MVIOP2(name)                                    \
-static inline void glue(gen_, name)(int rb, int rc)     \
-{                                                       \
-    if (unlikely(rc == 31))                             \
-        return;                                         \
-    if (unlikely(rb == 31))                             \
-        tcg_gen_movi_i64(cpu_ir[rc], 0);                \
-    else                                                \
-        gen_helper_ ## name (cpu_ir[rc], cpu_ir[rb]);   \
-}
-MVIOP2(pklb)
-MVIOP2(pkwb)
-MVIOP2(unpkbl)
-MVIOP2(unpkbw)
-
-
 
 static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
 {
-    {
+    if (insn == 0xADE05000) {
+        gen_helper_shutdown();
+        return EXIT_PC_STALE;
+    } else {
         TCGv_i32 tmp = tcg_temp_new_i32();
         TCGv_i64 tmp2 = tcg_temp_new_i64();
         tcg_gen_movi_i32(tmp, insn);
@@ -898,16 +394,16 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
         gen_helper_printstuff(tmp2, tmp);
         tcg_temp_free_i64(tmp2);
         tcg_temp_free_i32(tmp);
-    }
 
-    if (insn == 0) {
-        tcg_gen_movi_i64(cpu_pc, ctx->pc-4);
-        return EXIT_PC_UPDATED;
-    } else
-        return NO_EXIT;
+        if (insn == 0) {
+            tcg_gen_movi_i64(cpu_pc, ctx->pc-4);
+            return EXIT_PC_UPDATED;
+        } else
+            return NO_EXIT;
+    }
 }
 
-#if 0
+/*
 // Load operand for "X,ind" addressing mode (looks like black magic but it's real!)...
 // In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
 // In high elvish (x86 assembly syntax), this means [[X+[ 0x?? ]]].
@@ -921,7 +417,7 @@ static inline void gen_load_xind(unsigned zpg_imm)
     tcg_gen_qemu_ld8u(op_this_instr, zpg_tmp, ????);
     tcg_temp_free_i32(zpg);
 }
-#endif
+*/
 
 
 static inline void gen_intermediate_code_internal(CPUState *env,

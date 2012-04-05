@@ -201,6 +201,11 @@ void swap_shadow_regs(CPUState *env)
     env->shadow[7] = i7;
 }
 
+
+
+
+
+
 #ifndef USE_NEW_6502
 /* Returns the OSF/1 entMM failure indication, or -1 on success.  */
 static int get_physical_address(CPUState *env, target_ulong addr,
@@ -308,7 +313,10 @@ static int get_physical_address(CPUState *env, target_ulong addr,
     *pprot = prot;
     return ret;
 }
-#endif
+#endif  // USE_NEW_6502
+
+
+
 
 
 target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)

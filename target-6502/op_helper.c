@@ -73,10 +73,22 @@ void helper_printstuff (uint64_t addr, uint32_t instruction)
 	fprintf(stderr, "\nNao implementado: addr=0x%"PRIX64", insn=0x%"PRIX32"!\n", addr, instruction);
 	// Isto é querer sair do QEMU "à campeão", mas dá jeito para testar...
 	fprintf(stderr, "Found unimplemented instruction. Shutting down . . .\n");
+	fprintf(stdout, "\n"); fflush(stdout);
 	exit(0);
 }
 
+void helper_printchar (uint64_t ch)
+{
+    fprintf(stdout, "%c", (char)ch); fflush(stdout);
+}
 
+target_ulong helper_getnum (void)
+{
+    unsigned ret;
+    fscanf(stdin, "%*s");
+    fscanf(stdin, "%u", &ret);
+    return ret;
+}
 
 
 

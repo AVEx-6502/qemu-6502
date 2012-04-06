@@ -76,11 +76,11 @@ static TCGv_ptr cpu_env;
 static TCGv cpu_pc;
 
 // 6502 registers...
-static TCGv_i32 regAC;
-static TCGv_i32 regX;
-static TCGv_i32 regY;
-static TCGv_i32 regSR;
-static TCGv_i32 regSP;
+static TCGv regAC;
+static TCGv regX;
+static TCGv regY;
+static TCGv regSR;
+static TCGv regSP;
 
 static TCGv cpu_ir[31];
 static TCGv cpu_fir[31];
@@ -110,12 +110,12 @@ static void alpha_translate_init(void)
     cpu_env = tcg_global_reg_new_ptr(TCG_AREG0, "env");
 
     // Creating registers...
-    regAC = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, ac), "AC");
-    regX  = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState,  x),  "X");
-    regY  = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState,  y),  "Y");
+    regAC = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, ac), "AC");
+    regX  = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState,  x),  "X");
+    regY  = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState,  y),  "Y");
 
-    regSR = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, sr), "SR");
-    regSP = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, sp), "SP");
+    regSR = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sr), "SR");
+    regSP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sp), "SP");
 
 
     // Old Alpha stuff kept to avoid breaking the code:
@@ -400,28 +400,37 @@ static inline uint64_t zapnot_mask(uint8_t lit)
  * First we have functions that load addresses.
  * Then we have functions that load values.
  */
-/*
-// Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
-// In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
-// In higher elvish (x86-like syntax), this means [[X+[ 0x?? ]]].
-// The function uses the same register for all intermediate value...
-static inline uint64_t gen_xind_mode_addr(TCGv_i32 reg, uint64_t code_addr)
+
+/* Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
+ * In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
+ * In higher elvish (x86-like syntax), this means [[X+[ 0x?? ]]].
+ * The function uses the same register for all intermediate value...
+ *   NOTE: I think this has a bug... NOT TESTED!...
+ */
+static inline uint64_t gen_xind_mode_addr(TCGv reg, uint64_t code_addr)
 {
     uint8_t zpg_imm = ldub_code(code_addr++);
 
-    tcg_gen_movi_i32(reg, zpg_imm);
-    tcg_gen_qemu_ld8u_i32(reg, reg);      // Inner []
-    tcg_gen_addi_i32(reg, regX);            // Add X
-    tcg_gen_qemu_ld16u_i32(reg, reg);     // [] around addition
-    tcg_gen_qemu_ld8u_i32(reg, reg);      // Outer []
+    tcg_gen_movi_tl(reg, zpg_imm);
+    tcg_gen_qemu_ld8u(reg, reg, 0);     // Inner []
+    tcg_gen_add_tl(reg, reg, regX);     // Add X
+    tcg_gen_qemu_ld16u(reg, reg, 0);    // [] around addition
+    // Actual read is omited
 
     return code_addr;
 }
-*/
-static inline uint64_t gen_imm_mode(TCGv_i32 reg, uint64_t code_addr)
+
+static inline uint64_t gen_imm_mode(TCGv reg, uint64_t code_addr)
 {
     uint8_t imm = ldub_code(code_addr++);
-    tcg_gen_movi_i32(reg, imm);
+    tcg_gen_movi_tl(reg, imm);
+    return code_addr;
+}
+static inline uint64_t gen_xind_mode(TCGv reg, uint64_t code_addr)
+{
+    code_addr = gen_xind_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);        // Outer []
+
     return code_addr;
 }
 
@@ -429,23 +438,31 @@ static inline uint64_t gen_imm_mode(TCGv_i32 reg, uint64_t code_addr)
 
 static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
 {
-    fprintf(stderr, "A gerar: %"PRIX8"\n", ldub_code(*paddr));
+    fprintf(stderr, "A gerar: %"PRIX8", em %"PRIX16"\n", ldub_code(*paddr), (uint16_t)*paddr);
     uint8_t insn;
 
     // Decode opcode . . .
     switch(insn=ldub_code((*paddr)++)) {
-        case 0xA0:  // LDY imm
-        {
-            *paddr = gen_imm_mode(regY, *paddr);
+        // Immediate loads
+        case 0xA0: *paddr = gen_imm_mode(regY, *paddr);     return NO_EXIT;
+        case 0xA2: *paddr = gen_imm_mode(regX, *paddr);     return NO_EXIT;
+        case 0xA9: *paddr = gen_imm_mode(regAC, *paddr);    return NO_EXIT;
+
+
+        // This is a phony instruction to print a char to stdout...
+        case 0xFF:  // Write to stdout
+            gen_helper_printchar(regAC);
             return NO_EXIT;
-        }
+        case 0xFE:  // Read number from stdin
+            gen_helper_getnum(regAC);
+            return NO_EXIT;
 
         default:
         {
             TCGv_i32 tmp = tcg_temp_new_i32();
             TCGv_i64 tmp2 = tcg_temp_new_i64();
             tcg_gen_movi_i32(tmp, insn);
-            tcg_gen_movi_i64(tmp2, ctx->pc);
+            tcg_gen_movi_i64(tmp2, *paddr-1);
             gen_helper_printstuff(tmp2, tmp);
             tcg_temp_free_i64(tmp2);
             tcg_temp_free_i32(tmp);

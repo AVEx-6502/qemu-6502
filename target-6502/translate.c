@@ -75,6 +75,12 @@ typedef enum {
 static TCGv_ptr cpu_env;
 static TCGv cpu_pc;
 
+// 6502 registers...
+static TCGv_i32 regAC;
+static TCGv_i32 regX;
+static TCGv_i32 regY;
+static TCGv_i32 regSR;
+static TCGv_i32 regSP;
 
 static TCGv cpu_ir[31];
 static TCGv cpu_fir[31];
@@ -103,6 +109,16 @@ static void alpha_translate_init(void)
 
     cpu_env = tcg_global_reg_new_ptr(TCG_AREG0, "env");
 
+    // Creating registers...
+    regAC = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, ac), "AC");
+    regX  = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState,  x),  "X");
+    regY  = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState,  y),  "Y");
+
+    regSR = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, sr), "SR");
+    regSP = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, sp), "SP");
+
+
+    // Old Alpha stuff kept to avoid breaking the code:
     p = cpu_reg_names;
     for (i = 0; i < 31; i++) {
         sprintf(p, "ir%d", i);
@@ -380,44 +396,64 @@ static inline uint64_t zapnot_mask(uint8_t lit)
     return mask;
 }
 
-
-static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
+/* Inlines for addressing modes...
+ * First we have functions that load addresses.
+ * Then we have functions that load values.
+ */
+/*
+// Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
+// In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
+// In higher elvish (x86-like syntax), this means [[X+[ 0x?? ]]].
+// The function uses the same register for all intermediate value...
+static inline uint64_t gen_xind_mode_addr(TCGv_i32 reg, uint64_t code_addr)
 {
-    if (insn == 0xADE05000) {
-        gen_helper_shutdown();
-        return EXIT_PC_STALE;
-    } else {
-        TCGv_i32 tmp = tcg_temp_new_i32();
-        TCGv_i64 tmp2 = tcg_temp_new_i64();
-        tcg_gen_movi_i32(tmp, insn);
-        tcg_gen_movi_i64(tmp2, ctx->pc-4);
-        gen_helper_printstuff(tmp2, tmp);
-        tcg_temp_free_i64(tmp2);
-        tcg_temp_free_i32(tmp);
+    uint8_t zpg_imm = ldub_code(code_addr++);
 
-        if (insn == 0) {
-            tcg_gen_movi_i64(cpu_pc, ctx->pc-4);
-            return EXIT_PC_UPDATED;
-        } else
+    tcg_gen_movi_i32(reg, zpg_imm);
+    tcg_gen_qemu_ld8u_i32(reg, reg);      // Inner []
+    tcg_gen_addi_i32(reg, regX);            // Add X
+    tcg_gen_qemu_ld16u_i32(reg, reg);     // [] around addition
+    tcg_gen_qemu_ld8u_i32(reg, reg);      // Outer []
+
+    return code_addr;
+}
+*/
+static inline uint64_t gen_imm_mode(TCGv_i32 reg, uint64_t code_addr)
+{
+    uint8_t imm = ldub_code(code_addr++);
+    tcg_gen_movi_i32(reg, imm);
+    return code_addr;
+}
+
+
+
+static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
+{
+    fprintf(stderr, "A gerar: %"PRIX8"\n", ldub_code(*paddr));
+    uint8_t insn;
+
+    // Decode opcode . . .
+    switch(insn=ldub_code((*paddr)++)) {
+        case 0xA0:  // LDY imm
+        {
+            *paddr = gen_imm_mode(regY, *paddr);
             return NO_EXIT;
+        }
+
+        default:
+        {
+            TCGv_i32 tmp = tcg_temp_new_i32();
+            TCGv_i64 tmp2 = tcg_temp_new_i64();
+            tcg_gen_movi_i32(tmp, insn);
+            tcg_gen_movi_i64(tmp2, ctx->pc);
+            gen_helper_printstuff(tmp2, tmp);
+            tcg_temp_free_i64(tmp2);
+            tcg_temp_free_i32(tmp);
+            return EXIT_PC_STALE;
+        }
     }
 }
 
-/*
-// Load operand for "X,ind" addressing mode (looks like black magic but it's real!)...
-// In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
-// In high elvish (x86 assembly syntax), this means [[X+[ 0x?? ]]].
-static inline void gen_load_xind(unsigned zpg_imm)
-{
-    TGVv_i32 zpg = tcg_temp_new_i32();
-    tcg_gen_movi_i32(zpg, zpg_imm);
-    tcg_gen_qemu_ld8u(zpg_tmp, zpg, ????);
-    tcg_gen_addi_i64(zpg_tmp, cpu_x);
-    tcg_gen_qemu_ld16u(zpg_tmp, zpg_tmp, ????);
-    tcg_gen_qemu_ld8u(op_this_instr, zpg_tmp, ????);
-    tcg_temp_free_i32(zpg);
-}
-*/
 
 
 static inline void gen_intermediate_code_internal(CPUState *env,
@@ -426,7 +462,6 @@ static inline void gen_intermediate_code_internal(CPUState *env,
 {
     DisasContext ctx, *ctxp = &ctx;
     target_ulong pc_start;
-    uint32_t insn;
     uint16_t *gen_opc_end;
     CPUBreakpoint *bp;
     int j, lj = -1;
@@ -480,15 +515,13 @@ static inline void gen_intermediate_code_internal(CPUState *env,
         }
         if (num_insns + 1 == max_insns && (tb->cflags & CF_LAST_IO))
             gen_io_start();
-        insn = ldl_code(ctx.pc);
         num_insns++;
 
         if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP))) {
             tcg_gen_debug_insn_start(ctx.pc);
         }
 
-        ctx.pc += 4;
-        ret = translate_one(ctxp, insn);
+        ret = translate_one(ctxp, &ctx.pc);
 
         /* If we reach a page boundary, are single stepping,
            or exhaust instruction count, stop generation.  */

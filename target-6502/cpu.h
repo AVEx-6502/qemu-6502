@@ -253,13 +253,14 @@ typedef struct CPU6502State {
 */
 
 struct CPUAlphaState {
-    // "General" Registers
-    uint8_t     ac;
-    uint8_t     x;
-    uint8_t     y;
+    //      "General" Registers (they are really 8 bit, but as TCG doesn't
+    // seem to have 8 bit registers, we are going to use 8 bits...
+    uint32_t    ac;
+    uint32_t    x;
+    uint32_t    y;
 
-    uint8_t     sr;     // These are the flags: NV-BDIZC
-    uint8_t     sp;
+    uint32_t    sr;     // These are the flags: NV-BDIZC
+    uint32_t    sp;
 
     uint64_t    pc;     // This is temporarily 64 bits so that we don't break the remaining Alpha code...
 

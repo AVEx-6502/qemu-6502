@@ -1,5 +1,5 @@
 /*
- *  Alpha emulation cpu translation for qemu.
+ *  6502 emulation cpu translation for qemu.
  *
  *  Copyright (c) 2007 Jocelyn Mayer
  *
@@ -26,10 +26,10 @@
 #define GEN_HELPER 1
 #include "helper.h"
 
-#undef ALPHA_DEBUG_DISAS
+#undef CPU6502_DEBUG_DISAS
 #define CONFIG_SOFTFLOAT_INLINE
 
-#ifdef ALPHA_DEBUG_DISAS
+#ifdef CPU6502_DEBUG_DISAS
 #  define LOG_DISAS(...) qemu_log_mask(CPU_LOG_TB_IN_ASM, ## __VA_ARGS__)
 #else
 #  define LOG_DISAS(...) do { } while (0)
@@ -38,7 +38,7 @@
 typedef struct DisasContext DisasContext;
 struct DisasContext {
     struct TranslationBlock *tb;
-    CPUAlphaState *env;
+    CPU6502State *env;
     uint32_t pc;
     int mem_idx;
 
@@ -85,7 +85,7 @@ static TCGv regSP;
 
 #include "gen-icount.h"
 
-static void alpha_translate_init(void)
+static void cpu6502_translate_init(void)
 {
     static int done_init = 0;
 
@@ -369,13 +369,13 @@ void gen_intermediate_code_pc (CPUState *env, struct TranslationBlock *tb)
 
 
 
-CPUAlphaState * cpu_alpha_init (const char *cpu_model)
+CPU6502State * cpu_6502_init (const char *cpu_model)
 {
-    CPUAlphaState *env;
+    CPU6502State *env;
 
-    env = g_malloc0(sizeof(CPUAlphaState));
+    env = g_malloc0(sizeof(CPU6502State));
     cpu_exec_init(env);
-    alpha_translate_init();
+    cpu6502_translate_init();
     tlb_flush(env, 1);
 
     /* Default to ev67; no reason not to emulate insns by default.  */

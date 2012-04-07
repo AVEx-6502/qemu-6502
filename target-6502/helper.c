@@ -1,5 +1,5 @@
 /*
- *  Alpha emulation cpu helpers for qemu.
+ *  6502 emulation cpu helpers for qemu.
  *
  *  Copyright (c) 2007 Jocelyn Mayer
  *
@@ -26,7 +26,7 @@
 
 
 #if defined(CONFIG_USER_ONLY)
-int cpu_alpha_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
+int cpu_6502_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
                                 int mmu_idx)
 {
     env->exception_index = EXCP_MMFAULT;
@@ -41,7 +41,7 @@ target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
     return addr & TARGET_PAGE_MASK;
 }
 
-int cpu_alpha_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,
+int cpu_6502_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,
                                int mmu_idx)
 {
     tlb_set_page(env, addr & TARGET_PAGE_MASK, addr & TARGET_PAGE_MASK,

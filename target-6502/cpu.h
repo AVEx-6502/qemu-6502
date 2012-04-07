@@ -1,5 +1,5 @@
 /*
- *  Alpha emulation cpu definitions for qemu.
+ *  6502 emulation cpu definitions for qemu.
  *
  *  Copyright (c) 2007 Jocelyn Mayer
  *
@@ -17,15 +17,15 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#if !defined (__CPU_ALPHA_H__)
-#define __CPU_ALPHA_H__
+#if !defined (__CPU_6502_H__)
+#define __CPU_6502_H__
 
 #include "config.h"
 #include "qemu-common.h"
 
 #define TARGET_LONG_BITS 32
 
-#define CPUState struct CPUAlphaState
+#define CPUState struct CPU6502State
 
 #include "cpu-defs.h"
 
@@ -81,25 +81,9 @@ enum {
 #define MMU_KERNEL_IDX   0
 #define MMU_USER_IDX     1
 
-typedef struct CPUAlphaState CPUAlphaState;
+typedef struct CPU6502State CPU6502State;
 
-/*
-typedef struct CPU6502State {
-    // "General" Registers
-    uint8_t     ac;
-    uint8_t     x;
-    uint8_t     y;
-
-    uint16_t    pc;
-    uint8_t     sr;     // These are the flags: NV-BDIZC
-    uint8_t     sp;
-
-    // Those resources are used only in Qemu core
-    CPU_COMMON
-} CPU6502State;
-*/
-
-struct CPUAlphaState {
+struct CPU6502State {
     //      "General" Registers (they are really 8 bit, but as TCG doesn't
     // seem to have 8 bit registers, we are going to use more bits...
     uint32_t    ac;
@@ -131,10 +115,10 @@ struct CPUAlphaState {
     uint32_t amask;
 };
 
-#define cpu_init cpu_alpha_init
-#define cpu_exec cpu_alpha_exec
-#define cpu_gen_code cpu_alpha_gen_code
-#define cpu_signal_handler cpu_alpha_signal_handler
+#define cpu_init cpu_6502_init
+#define cpu_exec cpu_6502_exec
+#define cpu_gen_code cpu_6502_gen_code
+#define cpu_signal_handler cpu_6502_signal_handler
 
 #include "cpu-all.h"
 
@@ -191,16 +175,16 @@ static inline int cpu_mmu_index(CPUState *env)
 }
 
 
-CPUAlphaState * cpu_alpha_init (const char *cpu_model);
-int cpu_alpha_exec(CPUAlphaState *s);
+CPU6502State * cpu_6502_init (const char *cpu_model);
+int cpu_6502_exec(CPU6502State *s);
 /* you can call this signal handler from your SIGBUS and SIGSEGV
    signal handlers to inform the virtual CPU of exceptions. non zero
    is returned if the signal was handled by the virtual CPU.  */
-int cpu_alpha_signal_handler(int host_signum, void *pinfo,
+int cpu_6502_signal_handler(int host_signum, void *pinfo,
                              void *puc);
-int cpu_alpha_handle_mmu_fault (CPUState *env, uint32_t address, int rw,
+int cpu_6502_handle_mmu_fault (CPUState *env, uint32_t address, int rw,
                                 int mmu_idx);
-#define cpu_handle_mmu_fault cpu_alpha_handle_mmu_fault
+#define cpu_handle_mmu_fault cpu_6502_handle_mmu_fault
 void do_interrupt (CPUState *env);
 
 #ifndef CONFIG_USER_ONLY
@@ -280,4 +264,4 @@ static inline void cpu_pc_from_tb(CPUState *env, TranslationBlock *tb)
     env->pc = tb->pc;
 }
 
-#endif /* !defined (__CPU_ALPHA_H__) */
+#endif /* !defined (__CPU_6502_H__) */

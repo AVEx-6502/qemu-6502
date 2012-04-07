@@ -1,5 +1,5 @@
 /*
- *  Alpha emulation cpu micro-operations helpers for qemu.
+ *  6502 emulation cpu micro-operations helpers for qemu.
  *
  *  Copyright (c) 2007 Jocelyn Mayer
  *
@@ -154,7 +154,7 @@ void tlb_fill(CPUState *env1, target_ulong addr, int is_write, int mmu_idx,
 
     saved_env = env;
     env = env1;
-    ret = cpu_alpha_handle_mmu_fault(env, addr, is_write, mmu_idx);
+    ret = cpu_6502_handle_mmu_fault(env, addr, is_write, mmu_idx);
     if (unlikely(ret != 0)) {
         do_restore_state(retaddr);
         /* Exception index and error code are already set */

@@ -1,5 +1,5 @@
 /*
- *  Alpha emulation cpu translation for qemu.
+ *  6502 emulation cpu translation for qemu.
  *
  *  Copyright (c) 2007 Jocelyn Mayer
  *
@@ -26,10 +26,10 @@
 #define GEN_HELPER 1
 #include "helper.h"
 
-#undef ALPHA_DEBUG_DISAS
+#undef CPU6502_DEBUG_DISAS
 #define CONFIG_SOFTFLOAT_INLINE
 
-#ifdef ALPHA_DEBUG_DISAS
+#ifdef CPU6502_DEBUG_DISAS
 #  define LOG_DISAS(...) qemu_log_mask(CPU_LOG_TB_IN_ASM, ## __VA_ARGS__)
 #else
 #  define LOG_DISAS(...) do { } while (0)
@@ -38,8 +38,8 @@
 typedef struct DisasContext DisasContext;
 struct DisasContext {
     struct TranslationBlock *tb;
-    CPUAlphaState *env;
-    uint64_t pc;
+    CPU6502State *env;
+    uint32_t pc;
     int mem_idx;
 
     /* Current rounding mode for this TB.  */
@@ -82,26 +82,11 @@ static TCGv regY;
 static TCGv regSR;
 static TCGv regSP;
 
-static TCGv cpu_ir[31];
-static TCGv cpu_fir[31];
-static TCGv cpu_lock_addr;
-static TCGv cpu_lock_st_addr;
-static TCGv cpu_lock_value;
-static TCGv cpu_unique;
-#ifndef CONFIG_USER_ONLY
-static TCGv cpu_sysval;
-static TCGv cpu_usp;
-#endif
-
-/* register names */
-static char cpu_reg_names[10*4+21*5 + 10*5+21*6];
 
 #include "gen-icount.h"
 
-static void alpha_translate_init(void)
+static void cpu6502_translate_init(void)
 {
-    int i;
-    char *p;
     static int done_init = 0;
 
     if (done_init)
@@ -117,42 +102,8 @@ static void alpha_translate_init(void)
     regSR = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sr), "SR");
     regSP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sp), "SP");
 
-
-    // Old Alpha stuff kept to avoid breaking the code:
-    p = cpu_reg_names;
-    for (i = 0; i < 31; i++) {
-        sprintf(p, "ir%d", i);
-        cpu_ir[i] = tcg_global_mem_new_i64(TCG_AREG0,
-                                           offsetof(CPUState, ir[i]), p);
-        p += (i < 10) ? 4 : 5;
-
-        sprintf(p, "fir%d", i);
-        cpu_fir[i] = tcg_global_mem_new_i64(TCG_AREG0,
-                                            offsetof(CPUState, fir[i]), p);
-        p += (i < 10) ? 5 : 6;
-    }
-
-    cpu_pc = tcg_global_mem_new_i64(TCG_AREG0,
-                                    offsetof(CPUState, pc), "pc");
-
-    cpu_lock_addr = tcg_global_mem_new_i64(TCG_AREG0,
-                                           offsetof(CPUState, lock_addr),
-                                           "lock_addr");
-    cpu_lock_st_addr = tcg_global_mem_new_i64(TCG_AREG0,
-                                              offsetof(CPUState, lock_st_addr),
-                                              "lock_st_addr");
-    cpu_lock_value = tcg_global_mem_new_i64(TCG_AREG0,
-                                            offsetof(CPUState, lock_value),
-                                            "lock_value");
-
-    cpu_unique = tcg_global_mem_new_i64(TCG_AREG0,
-                                        offsetof(CPUState, unique), "unique");
-#ifndef CONFIG_USER_ONLY
-    cpu_sysval = tcg_global_mem_new_i64(TCG_AREG0,
-                                        offsetof(CPUState, sysval), "sysval");
-    cpu_usp = tcg_global_mem_new_i64(TCG_AREG0,
-                                     offsetof(CPUState, usp), "usp");
-#endif
+    cpu_pc = tcg_global_mem_new(TCG_AREG0,
+                                offsetof(CPUState, pc), "pc");
 
     /* register helpers */
 #define GEN_HELPER 2
@@ -174,105 +125,14 @@ static void gen_excp_1(int exception, int error_code)
 
 static ExitStatus gen_excp(DisasContext *ctx, int exception, int error_code)
 {
-    tcg_gen_movi_i64(cpu_pc, ctx->pc);
+    tcg_gen_movi_i32(cpu_pc, ctx->pc);
     gen_excp_1(exception, error_code);
     return EXIT_NORETURN;
 }
 
-static inline ExitStatus gen_invalid(DisasContext *ctx)
-{
-    return gen_excp(ctx, EXCP_OPCDEC, 0);
-}
 
 
 
-
-
-
-static inline void gen_qemu_ldl_l(TCGv t0, TCGv t1, int flags)
-{
-    tcg_gen_qemu_ld32s(t0, t1, flags);
-    tcg_gen_mov_i64(cpu_lock_addr, t1);
-    tcg_gen_mov_i64(cpu_lock_value, t0);
-}
-
-static inline void gen_qemu_ldq_l(TCGv t0, TCGv t1, int flags)
-{
-    tcg_gen_qemu_ld64(t0, t1, flags);
-    tcg_gen_mov_i64(cpu_lock_addr, t1);
-    tcg_gen_mov_i64(cpu_lock_value, t0);
-}
-
-static inline void gen_load_mem(DisasContext *ctx,
-                                void (*tcg_gen_qemu_load)(TCGv t0, TCGv t1,
-                                                          int flags),
-                                int ra, int rb, int32_t disp16, int fp,
-                                int clear)
-{
-    TCGv addr, va;
-
-    /* LDQ_U with ra $31 is UNOP.  Other various loads are forms of
-       prefetches, which we can treat as nops.  No worries about
-       missed exceptions here.  */
-    if (unlikely(ra == 31)) {
-        return;
-    }
-
-    addr = tcg_temp_new();
-    if (rb != 31) {
-        tcg_gen_addi_i64(addr, cpu_ir[rb], disp16);
-        if (clear) {
-            tcg_gen_andi_i64(addr, addr, ~0x7);
-        }
-    } else {
-        if (clear) {
-            disp16 &= ~0x7;
-        }
-        tcg_gen_movi_i64(addr, disp16);
-    }
-
-    va = (fp ? cpu_fir[ra] : cpu_ir[ra]);
-    tcg_gen_qemu_load(va, addr, ctx->mem_idx);
-
-    tcg_temp_free(addr);
-}
-
-
-
-
-static inline void gen_store_mem(DisasContext *ctx,
-                                 void (*tcg_gen_qemu_store)(TCGv t0, TCGv t1,
-                                                            int flags),
-                                 int ra, int rb, int32_t disp16, int fp,
-                                 int clear)
-{
-    TCGv addr, va;
-
-    addr = tcg_temp_new();
-    if (rb != 31) {
-        tcg_gen_addi_i64(addr, cpu_ir[rb], disp16);
-        if (clear) {
-            tcg_gen_andi_i64(addr, addr, ~0x7);
-        }
-    } else {
-        if (clear) {
-            disp16 &= ~0x7;
-        }
-        tcg_gen_movi_i64(addr, disp16);
-    }
-
-    if (ra == 31) {
-        va = tcg_const_i64(0);
-    } else {
-        va = (fp ? cpu_fir[ra] : cpu_ir[ra]);
-    }
-    tcg_gen_qemu_store(va, addr, ctx->mem_idx);
-
-    tcg_temp_free(addr);
-    if (ra == 31) {
-        tcg_temp_free(va);
-    }
-}
 
 #if 0
 static int use_goto_tb(DisasContext *ctx, uint64_t dest)
@@ -298,110 +158,12 @@ static int use_goto_tb(DisasContext *ctx, uint64_t dest)
 
 
 
-
-
-
-
-
-
-
-
-static void gen_cpys_internal(int ra, int rb, int rc, int inv_a, uint64_t mask)
-{
-    TCGv va, vb, vmask;
-    int za = 0, zb = 0;
-
-    if (unlikely(rc == 31)) {
-        return;
-    }
-
-    vmask = tcg_const_i64(mask);
-
-    TCGV_UNUSED_I64(va);
-    if (ra == 31) {
-        if (inv_a) {
-            va = vmask;
-        } else {
-            za = 1;
-        }
-    } else {
-        va = tcg_temp_new_i64();
-        tcg_gen_mov_i64(va, cpu_fir[ra]);
-        if (inv_a) {
-            tcg_gen_andc_i64(va, vmask, va);
-        } else {
-            tcg_gen_and_i64(va, va, vmask);
-        }
-    }
-
-    TCGV_UNUSED_I64(vb);
-    if (rb == 31) {
-        zb = 1;
-    } else {
-        vb = tcg_temp_new_i64();
-        tcg_gen_andc_i64(vb, cpu_fir[rb], vmask);
-    }
-
-    switch (za << 1 | zb) {
-    case 0 | 0:
-        tcg_gen_or_i64(cpu_fir[rc], va, vb);
-        break;
-    case 0 | 1:
-        tcg_gen_mov_i64(cpu_fir[rc], va);
-        break;
-    case 2 | 0:
-        tcg_gen_mov_i64(cpu_fir[rc], vb);
-        break;
-    case 2 | 1:
-        tcg_gen_movi_i64(cpu_fir[rc], 0);
-        break;
-    }
-
-    tcg_temp_free(vmask);
-    if (ra != 31) {
-        tcg_temp_free(va);
-    }
-    if (rb != 31) {
-        tcg_temp_free(vb);
-    }
-}
-
-static inline void gen_fcpys(int ra, int rb, int rc)
-{
-    gen_cpys_internal(ra, rb, rc, 0, 0x8000000000000000ULL);
-}
-
-static inline void gen_fcpysn(int ra, int rb, int rc)
-{
-    gen_cpys_internal(ra, rb, rc, 1, 0x8000000000000000ULL);
-}
-
-static inline void gen_fcpyse(int ra, int rb, int rc)
-{
-    gen_cpys_internal(ra, rb, rc, 0, 0xFFF0000000000000ULL);
-}
-
-
-
-
-static inline uint64_t zapnot_mask(uint8_t lit)
-{
-    uint64_t mask = 0;
-    int i;
-
-    for (i = 0; i < 8; ++i) {
-        if ((lit >> i) & 1)
-            mask |= 0xffull << (i * 8);
-    }
-    return mask;
-}
-
 /* Inlines for addressing modes...
  * First, we have self-descriptive get_from_code function.
  * Then, we have functions that load addresses.
  * Finally, we have functions that load values.
  */
-static inline uint8_t get_from_code(uint64_t *code_addr)
+static inline uint8_t get_from_code(uint32_t *code_addr)
 {
     return ldub_code((*code_addr)++);
 }
@@ -413,7 +175,7 @@ static inline uint8_t get_from_code(uint64_t *code_addr)
  *   NOTE: I think this has a bug... NOT TESTED!...
  */
 #ifdef LATER
-static inline uint64_t gen_xind_mode_addr(TCGv reg, uint64_t code_addr)
+static inline uint64_t gen_xind_mode_addr(TCGv reg, uint32_t code_addr)
 {
     uint8_t zpg_imm = ldub_code(code_addr++);
 
@@ -427,8 +189,9 @@ static inline uint64_t gen_xind_mode_addr(TCGv reg, uint64_t code_addr)
 }
 #endif
 
+
 #ifdef LATER
-static inline uint64_t gen_xind_mode(TCGv reg, uint64_t code_addr)
+static inline uint64_t gen_xind_mode(TCGv reg, uint32_t code_addr)
 {
     code_addr = gen_xind_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld8u(reg, reg, 0);        // Outer []
@@ -438,7 +201,8 @@ static inline uint64_t gen_xind_mode(TCGv reg, uint64_t code_addr)
 #endif
 
 
-static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
+
+static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 {
     fprintf(stderr, "A gerar: %"PRIX8", em %"PRIX16"\n", ldub_code(*paddr), (uint16_t)*paddr);
     uint8_t insn;
@@ -475,11 +239,11 @@ static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
         default:
         {
             TCGv_i32 tmp = tcg_temp_new_i32();
-            TCGv_i64 tmp2 = tcg_temp_new_i64();
+            TCGv_i32 tmp2 = tcg_temp_new_i32();
             tcg_gen_movi_i32(tmp, insn);
-            tcg_gen_movi_i64(tmp2, *paddr-1);
+            tcg_gen_movi_i32(tmp2, *paddr-1);
             gen_helper_printstuff(tmp2, tmp);
-            tcg_temp_free_i64(tmp2);
+            tcg_temp_free_i32(tmp2);
             tcg_temp_free_i32(tmp);
             return EXIT_PC_STALE;
         }
@@ -576,7 +340,7 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     case EXIT_NORETURN:
         break;
     case EXIT_PC_STALE:
-        tcg_gen_movi_i64(cpu_pc, ctx.pc);
+        tcg_gen_movi_i32(cpu_pc, ctx.pc);
         /* FALLTHRU */
     case EXIT_PC_UPDATED:
         if (env->singlestep_enabled) {
@@ -620,62 +384,24 @@ void gen_intermediate_code_pc (CPUState *env, struct TranslationBlock *tb)
     gen_intermediate_code_internal(env, tb, 1);
 }
 
-struct cpu_def_t {
-    const char *name;
-    int implver, amask;
-};
 
-static const struct cpu_def_t cpu_defs[] = {
-    { "ev4",   IMPLVER_2106x, 0 },
-    { "ev5",   IMPLVER_21164, 0 },
-    { "ev56",  IMPLVER_21164, AMASK_BWX },
-    { "pca56", IMPLVER_21164, AMASK_BWX | AMASK_MVI },
-    { "ev6",   IMPLVER_21264, AMASK_BWX | AMASK_FIX | AMASK_MVI | AMASK_TRAP },
-    { "ev67",  IMPLVER_21264, (AMASK_BWX | AMASK_FIX | AMASK_CIX
-                               | AMASK_MVI | AMASK_TRAP | AMASK_PREFETCH), },
-    { "ev68",  IMPLVER_21264, (AMASK_BWX | AMASK_FIX | AMASK_CIX
-                               | AMASK_MVI | AMASK_TRAP | AMASK_PREFETCH), },
-    { "21064", IMPLVER_2106x, 0 },
-    { "21164", IMPLVER_21164, 0 },
-    { "21164a", IMPLVER_21164, AMASK_BWX },
-    { "21164pc", IMPLVER_21164, AMASK_BWX | AMASK_MVI },
-    { "21264", IMPLVER_21264, AMASK_BWX | AMASK_FIX | AMASK_MVI | AMASK_TRAP },
-    { "21264a", IMPLVER_21264, (AMASK_BWX | AMASK_FIX | AMASK_CIX
-                                | AMASK_MVI | AMASK_TRAP | AMASK_PREFETCH), }
-};
 
-CPUAlphaState * cpu_alpha_init (const char *cpu_model)
+CPU6502State * cpu_6502_init (const char *cpu_model)
 {
-    CPUAlphaState *env;
-    int implver, amask, i, max;
+    CPU6502State *env;
 
-    env = g_malloc0(sizeof(CPUAlphaState));
+    env = g_malloc0(sizeof(CPU6502State));
     cpu_exec_init(env);
-    alpha_translate_init();
+    cpu6502_translate_init();
     tlb_flush(env, 1);
 
     /* Default to ev67; no reason not to emulate insns by default.  */
-    implver = IMPLVER_21264;
-    amask = (AMASK_BWX | AMASK_FIX | AMASK_CIX | AMASK_MVI
+    env->amask = (AMASK_BWX | AMASK_FIX | AMASK_CIX | AMASK_MVI
              | AMASK_TRAP | AMASK_PREFETCH);
-
-    max = ARRAY_SIZE(cpu_defs);
-    for (i = 0; i < max; i++) {
-        if (strcmp (cpu_model, cpu_defs[i].name) == 0) {
-            implver = cpu_defs[i].implver;
-            amask = cpu_defs[i].amask;
-            break;
-        }
-    }
-    env->implver = implver;
-    env->amask = amask;
 
 #if defined (CONFIG_USER_ONLY)
     env->ps = PS_USER_MODE;
-    cpu_alpha_store_fpcr(env, (FPCR_INVD | FPCR_DZED | FPCR_OVFD
-                               | FPCR_UNFD | FPCR_INED | FPCR_DNOD));
 #endif
-    env->lock_addr = -1;
     env->fen = 1;
 
     qemu_init_vcpu(env);

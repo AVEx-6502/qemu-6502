@@ -167,6 +167,10 @@ static inline uint8_t get_from_code(uint32_t *code_addr)
 {
     return ldub_code((*code_addr)++);
 }
+static inline uint16_t getw_from_code(uint32_t *code_addr)
+{
+    return lduw_code((*code_addr)++);
+}
 
 /* Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
  * In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
@@ -214,12 +218,16 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
      */
     switch(insn=get_from_code(paddr)) {
         // Immediate loads
-        case 0xA0: tcg_gen_movi_tl(regY, get_from_code(paddr));     return NO_EXIT;
-        case 0xA2: tcg_gen_movi_tl(regX, get_from_code(paddr));     return NO_EXIT;
-        case 0xA9: tcg_gen_movi_tl(regAC, get_from_code(paddr));    return NO_EXIT;
+        case 0xA0:  tcg_gen_movi_tl(regY, get_from_code(paddr));    return NO_EXIT;
+        case 0xA2:  tcg_gen_movi_tl(regX, get_from_code(paddr));    return NO_EXIT;
+        case 0xA9:  tcg_gen_movi_tl(regAC, get_from_code(paddr));   return NO_EXIT;
 
         // Adds
-        case 0x69: tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));    return NO_EXIT;
+        case 0x69:  tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));    return NO_EXIT;
+
+
+        // Jumps and branches
+        case 0x4C:  tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr));  return EXIT_PC_UPDATED;
 
 
         // These are phony instructions to work with the terminal...

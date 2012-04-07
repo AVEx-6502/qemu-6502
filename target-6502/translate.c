@@ -82,6 +82,8 @@ static TCGv regY;
 static TCGv regSR;
 static TCGv regSP;
 
+static TCGv regTMP;
+
 
 #include "gen-icount.h"
 
@@ -102,9 +104,9 @@ static void cpu6502_translate_init(void)
     regSR = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sr), "SR");
     regSP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sp), "SP");
 
-    cpu_pc = tcg_global_mem_new(TCG_AREG0,
-                                offsetof(CPUState, pc), "pc");
+    cpu_pc = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, pc), "pc");
 
+    regTMP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState,tmp), "TMP");
     /* register helpers */
 #define GEN_HELPER 2
 #include "helper.h"
@@ -169,7 +171,8 @@ static inline uint8_t get_from_code(uint32_t *code_addr)
 }
 static inline uint16_t getw_from_code(uint32_t *code_addr)
 {
-    return lduw_code((*code_addr)++);
+    (*code_addr) += 2;
+    return lduw_code(*code_addr - 2);
 }
 
 /* Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
@@ -178,31 +181,37 @@ static inline uint16_t getw_from_code(uint32_t *code_addr)
  * The function uses the same register for all intermediate value...
  *   NOTE: I think this has a bug... NOT TESTED!...
  */
-#ifdef LATER
-static inline uint64_t gen_xind_mode_addr(TCGv reg, uint32_t code_addr)
-{
-    uint8_t zpg_imm = ldub_code(code_addr++);
-
-    tcg_gen_movi_tl(reg, zpg_imm);
-    tcg_gen_qemu_ld8u(reg, reg, 0);     // Inner []
-    tcg_gen_add_tl(reg, reg, regX);     // Add X
-    tcg_gen_qemu_ld16u(reg, reg, 0);    // [] around addition
-    // Actual read is omited
-
+static inline uint64_t gen_abs_mode_addr(TCGv reg, uint32_t code_addr) {
+    uint32_t base = getw_from_code(&code_addr);
+    tcg_gen_movi_tl(reg, base);
     return code_addr;
 }
-#endif
-
-
-#ifdef LATER
-static inline uint64_t gen_xind_mode(TCGv reg, uint32_t code_addr)
-{
-    code_addr = gen_xind_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld8u(reg, reg, 0);        // Outer []
-
+static inline uint64_t gen_Xabs_mode_addr(TCGv reg, uint32_t code_addr) {
+    uint32_t base = getw_from_code(&code_addr);
+    tcg_gen_addi_tl(reg, regX, base);     // Add X
     return code_addr;
 }
-#endif
+static inline uint64_t gen_Yabs_mode_addr(TCGv reg, uint32_t code_addr) {
+    uint32_t base = getw_from_code(&code_addr);
+    tcg_gen_addi_tl(reg, regY, base);     // Add Y
+    return code_addr;
+}
+
+static inline uint64_t gen_abs_mode(TCGv reg, uint32_t code_addr) {
+    code_addr = gen_abs_mode_addr(reg,code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
+static inline uint64_t gen_Xabs_mode(TCGv reg, uint32_t code_addr) {
+    code_addr = gen_Xabs_mode_addr(reg,code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
+static inline uint64_t gen_Yabs_mode(TCGv reg, uint32_t code_addr) {
+    code_addr = gen_Yabs_mode_addr(reg,code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
 
 
 
@@ -222,12 +231,38 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0xA2:  tcg_gen_movi_tl(regX, get_from_code(paddr));    return NO_EXIT;
         case 0xA9:  tcg_gen_movi_tl(regAC, get_from_code(paddr));   return NO_EXIT;
 
+        // Loads abs+?
+        case 0xAD:  *paddr = gen_abs_mode(regAC, *paddr);       return NO_EXIT;
+        case 0xAE:  *paddr = gen_abs_mode(regX, *paddr);        return NO_EXIT;
+        case 0xAC:  *paddr = gen_abs_mode(regY, *paddr);        return NO_EXIT;
+        case 0xBD:  *paddr = gen_Xabs_mode(regAC, *paddr);      return NO_EXIT;
+        case 0xBC:  *paddr = gen_Xabs_mode(regY, *paddr);      return NO_EXIT;
+        case 0xB9:  *paddr = gen_Yabs_mode(regAC, *paddr);      return NO_EXIT;
+        case 0xBE:  *paddr = gen_Yabs_mode(regX, *paddr);      return NO_EXIT;
+
+        // Stores abs+?
+        case 0x8D:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
+        case 0x8E:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regX, regTMP, 0);  return NO_EXIT;
+        case 0x8C:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regY, regTMP, 0);  return NO_EXIT;
+        case 0x9D:  *paddr = gen_Xabs_mode_addr(regTMP, *paddr); tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
+        case 0x99:  *paddr = gen_Yabs_mode_addr(regTMP, *paddr); tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
+
+        // Simple transfers between registers...
+        case 0x8A:  tcg_gen_mov_tl(regAC, regX);    return NO_EXIT;
+        case 0x98:  tcg_gen_mov_tl(regAC, regY);    return NO_EXIT;
+        case 0xA8:  tcg_gen_mov_tl(regY,  regAC);   return NO_EXIT;
+        case 0xAA:  tcg_gen_mov_tl(regX,  regAC);   return NO_EXIT;
+
         // Adds
         case 0x69:  tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));    return NO_EXIT;
 
 
         // Jumps and branches
         case 0x4C:  tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr));  return EXIT_PC_UPDATED;
+
+
+        // NOP!
+        case 0xEA:  return NO_EXIT;
 
 
         // These are phony instructions to work with the terminal...

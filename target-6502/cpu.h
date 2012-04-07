@@ -95,6 +95,9 @@ struct CPU6502State {
 
     uint32_t    pc;
 
+
+    uint32_t    tmp;
+
     /* The Internal Processor Registers.  Some of these we assume always
        exist for use in user-mode.  */
     uint8_t ps;

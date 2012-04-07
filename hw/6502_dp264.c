@@ -101,40 +101,40 @@ static void mos6502_init(ram_addr_t ram_size,
      */
 
     // TIA registers
-    MemoryRegion *tia_regs = g_malloc(sizeof(*tia_regs));
+    MemoryRegion *tia_regs = g_new(MemoryRegion, 1);
     memory_region_init_io(tia_regs, &tia_ops, cpu, "6502.tia_regs", 0x007F - 0x0000 + 1);
     memory_region_add_subregion(address_space, 0x0000, tia_regs);
 
     // RAM
-    MemoryRegion *ram = g_malloc(sizeof(*ram));
+    MemoryRegion *ram = g_new(MemoryRegion, 1);
     memory_region_init_ram(ram, "6502.ram", 0x00FF - 0x0080 + 1);
     vmstate_register_ram_global(ram);
     memory_region_add_subregion(address_space, 0x0080, ram);
 
     // Unused space between RAM and RIOT registers
-    MemoryRegion *unused1 = g_malloc(sizeof(*unused1));;
+    MemoryRegion *unused1 = g_new(MemoryRegion, 1);
     memory_region_init_reservation(unused1, "6502.unused1", 0x01FF - 0x0100 + 1);
     memory_region_add_subregion(address_space, 0x0100, unused1);
 
     // RIOT registers
-    MemoryRegion *riot_regs = g_malloc(sizeof(*riot_regs));;
+    MemoryRegion *riot_regs = g_new(MemoryRegion, 1);
     memory_region_init_io(riot_regs, &riot_ops, cpu, "6502.riot_regs", 0x02FF - 0x0200 + 1);
     memory_region_add_subregion(address_space, 0x0200, riot_regs);
 
     // Unused space between RIOT registers and ROM
-    MemoryRegion *unused2 = g_malloc(sizeof(*unused2));
+    MemoryRegion *unused2 = g_new(MemoryRegion, 1);
     memory_region_init_reservation(unused2, "6502.unused2", 0x0FFF - 0x0300 + 1);
     memory_region_add_subregion(address_space, 0x0300, unused2);
 
     // ROM
-    MemoryRegion *rom = g_malloc(sizeof(*rom));
+    MemoryRegion *rom = g_new(MemoryRegion, 1);
     memory_region_init_ram(rom, "6502.rom", 0x1FFF - 0x1000 + 1);
     memory_region_set_readonly(rom, true);
     vmstate_register_ram_global(rom);
     memory_region_add_subregion(address_space, 0x1000, rom);
 
     // Rest of the address space
-    MemoryRegion *unused3 = g_malloc(sizeof(*unused3));
+    MemoryRegion *unused3 = g_new(MemoryRegion, 1);
     memory_region_init_reservation(unused3, "6502.unused3", (ram_size - 1) - 0x2000 + 1);
     memory_region_add_subregion(address_space, 0x2000, unused3);
 
@@ -167,13 +167,7 @@ static void mos6502_init(ram_addr_t ram_size,
 
 #endif
 
-
-    // TODO: Clean-up
-    cpu->pal_mode = 1;
     cpu->pc = 0x1000;   // BIOS address
-    cpu->palbr = 0x1000;
-
-    fprintf(stderr, "Final do mos6502_init.\n");
 
 }
 

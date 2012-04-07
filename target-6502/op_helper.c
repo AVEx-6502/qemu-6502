@@ -77,15 +77,56 @@ void helper_printstuff (uint64_t addr, uint32_t instruction)
 	exit(0);
 }
 
+
+
+
 void helper_printchar (uint64_t ch)
 {
     fprintf(stdout, "%c", (char)ch); fflush(stdout);
 }
 
+void helper_printnum (uint64_t num)
+{
+    fprintf(stdout, "%"PRIu64, num); fflush(stdout);
+}
+
+
+
+#include <termios.h>
+#include <unistd.h>
+#define fatal(ARG)  {fprintf(stderr, ARG); exit(-1);}
+target_ulong helper_getchar (void)
+{
+    struct termios saved;
+    if (tcgetattr(STDIN_FILENO, &saved) < 0) fatal("can't get tty settings");
+    if (isatty(STDIN_FILENO)) {
+        struct termios raw = saved;
+
+        raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+        raw.c_oflag &= ~(OPOST);
+        raw.c_cflag |= (CS8);
+        raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+        raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
+
+        if (tcsetattr(STDIN_FILENO,TCSANOW,&raw) < 0) fatal("can't set raw mode");
+    }
+
+    char ret;
+    read(STDIN_FILENO, &ret, 1);
+    //fscanf(stdin, "%*s");
+    //fscanf(stdin, "%c", &ret);
+
+    if (isatty(STDIN_FILENO)) {
+        if (tcsetattr(STDIN_FILENO,TCSANOW,&saved) < 0) fatal("can't restore old terminal mode");
+    }
+
+    return ret;
+}
+
 target_ulong helper_getnum (void)
 {
     unsigned ret;
-    fscanf(stdin, "%*s");
+    //fscanf(stdin, "%*s");
     fscanf(stdin, "%u", &ret);
     return ret;
 }

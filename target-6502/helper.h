@@ -1,6 +1,8 @@
 #include "def-helper.h"
 
 DEF_HELPER_1(printchar, void, i64)
+DEF_HELPER_1(printnum, void, i64)
+DEF_HELPER_0(getchar, tl)
 DEF_HELPER_0(getnum, tl)
 
 

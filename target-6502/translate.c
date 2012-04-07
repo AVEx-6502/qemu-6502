@@ -397,9 +397,14 @@ static inline uint64_t zapnot_mask(uint8_t lit)
 }
 
 /* Inlines for addressing modes...
- * First we have functions that load addresses.
- * Then we have functions that load values.
+ * First, we have self-descriptive get_from_code function.
+ * Then, we have functions that load addresses.
+ * Finally, we have functions that load values.
  */
+static inline uint8_t get_from_code(uint64_t *code_addr)
+{
+    return ldub_code((*code_addr)++);
+}
 
 /* Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
  * In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
@@ -407,6 +412,7 @@ static inline uint64_t zapnot_mask(uint8_t lit)
  * The function uses the same register for all intermediate value...
  *   NOTE: I think this has a bug... NOT TESTED!...
  */
+#ifdef LATER
 static inline uint64_t gen_xind_mode_addr(TCGv reg, uint64_t code_addr)
 {
     uint8_t zpg_imm = ldub_code(code_addr++);
@@ -419,13 +425,9 @@ static inline uint64_t gen_xind_mode_addr(TCGv reg, uint64_t code_addr)
 
     return code_addr;
 }
+#endif
 
-static inline uint64_t gen_imm_mode(TCGv reg, uint64_t code_addr)
-{
-    uint8_t imm = ldub_code(code_addr++);
-    tcg_gen_movi_tl(reg, imm);
-    return code_addr;
-}
+#ifdef LATER
 static inline uint64_t gen_xind_mode(TCGv reg, uint64_t code_addr)
 {
     code_addr = gen_xind_mode_addr(reg, code_addr);
@@ -433,7 +435,7 @@ static inline uint64_t gen_xind_mode(TCGv reg, uint64_t code_addr)
 
     return code_addr;
 }
-
+#endif
 
 
 static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
@@ -441,20 +443,33 @@ static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
     fprintf(stderr, "A gerar: %"PRIX8", em %"PRIX16"\n", ldub_code(*paddr), (uint16_t)*paddr);
     uint8_t insn;
 
-    // Decode opcode . . .
-    switch(insn=ldub_code((*paddr)++)) {
+    /* 6502 machine code is very very simple to parse. No need for black magic.
+     * First comes the opcode, which is always 1 byte, and then comes either the
+     * operand, or the clue to find it. The size and presence of any operand can
+     * be rightly inferred from the opcode.
+     */
+    switch(insn=get_from_code(paddr)) {
         // Immediate loads
-        case 0xA0: *paddr = gen_imm_mode(regY, *paddr);     return NO_EXIT;
-        case 0xA2: *paddr = gen_imm_mode(regX, *paddr);     return NO_EXIT;
-        case 0xA9: *paddr = gen_imm_mode(regAC, *paddr);    return NO_EXIT;
+        case 0xA0: tcg_gen_movi_tl(regY, get_from_code(paddr));     return NO_EXIT;
+        case 0xA2: tcg_gen_movi_tl(regX, get_from_code(paddr));     return NO_EXIT;
+        case 0xA9: tcg_gen_movi_tl(regAC, get_from_code(paddr));    return NO_EXIT;
+
+        // Adds
+        case 0x69: tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));    return NO_EXIT;
 
 
-        // This is a phony instruction to print a char to stdout...
+        // These are phony instructions to work with the terminal...
+        case 0xCF:  // Read number from stdin
+            gen_helper_getnum(regAC);
+            return NO_EXIT;
+        case 0xDF:  // Read number from stdin
+            gen_helper_printnum(regAC);
+            return NO_EXIT;
+        case 0xEF:  // Read char from stdin
+            gen_helper_getchar(regAC);
+            return NO_EXIT;
         case 0xFF:  // Write to stdout
             gen_helper_printchar(regAC);
-            return NO_EXIT;
-        case 0xFE:  // Read number from stdin
-            gen_helper_getnum(regAC);
             return NO_EXIT;
 
         default:

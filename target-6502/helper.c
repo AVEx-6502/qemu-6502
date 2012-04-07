@@ -24,8 +24,6 @@
 #include "cpu.h"
 #include "softfloat.h"
 
-#include "6502_new.h"
-
 uint64_t cpu_alpha_load_fpcr (CPUState *env)
 {
     uint64_t r = 0;
@@ -171,6 +169,7 @@ int cpu_alpha_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
 #else
 void swap_shadow_regs(CPUState *env)
 {
+#if 0
     uint64_t i0, i1, i2, i3, i4, i5, i6, i7;
 
     i0 = env->ir[8];
@@ -199,121 +198,8 @@ void swap_shadow_regs(CPUState *env)
     env->shadow[5] = i5;
     env->shadow[6] = i6;
     env->shadow[7] = i7;
-}
-
-
-
-
-
-
-#ifndef USE_NEW_6502
-/* Returns the OSF/1 entMM failure indication, or -1 on success.  */
-static int get_physical_address(CPUState *env, target_ulong addr,
-                                int prot_need, int mmu_idx,
-                                target_ulong *pphys, int *pprot)
-{
-    target_long saddr = addr;
-    target_ulong phys = 0;
-    target_ulong L1pte, L2pte, L3pte;
-    target_ulong pt, index;
-    int prot = 0;
-    int ret = MM_K_ACV;
-
-    /* Ensure that the virtual address is properly sign-extended from
-       the last implemented virtual address bit.  */
-    if (saddr >> TARGET_VIRT_ADDR_SPACE_BITS != saddr >> 63) {
-        goto exit;
-    }
-
-    /* Translate the superpage.  */
-    /* ??? When we do more than emulate Unix PALcode, we'll need to
-       determine which KSEG is actually active.  */
-    if (saddr < 0 && ((saddr >> 41) & 3) == 2) {
-        /* User-space cannot access KSEG addresses.  */
-        if (mmu_idx != MMU_KERNEL_IDX) {
-            goto exit;
-        }
-
-        /* For the benefit of the Typhoon chipset, move bit 40 to bit 43.
-           We would not do this if the 48-bit KSEG is enabled.  */
-        phys = saddr & ((1ull << 40) - 1);
-        phys |= (saddr & (1ull << 40)) << 3;
-
-        prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
-        ret = -1;
-        goto exit;
-    }
-
-    /* Interpret the page table exactly like PALcode does.  */
-
-    pt = env->ptbr;
-
-    /* L1 page table read.  */
-    index = (addr >> (TARGET_PAGE_BITS + 20)) & 0x3ff;
-    L1pte = ldq_phys(pt + index*8);
-
-    if (unlikely((L1pte & PTE_VALID) == 0)) {
-        ret = MM_K_TNV;
-        goto exit;
-    }
-    if (unlikely((L1pte & PTE_KRE) == 0)) {
-        goto exit;
-    }
-    pt = L1pte >> 32 << TARGET_PAGE_BITS;
-
-    /* L2 page table read.  */
-    index = (addr >> (TARGET_PAGE_BITS + 10)) & 0x3ff;
-    L2pte = ldq_phys(pt + index*8);
-
-    if (unlikely((L2pte & PTE_VALID) == 0)) {
-        ret = MM_K_TNV;
-        goto exit;
-    }
-    if (unlikely((L2pte & PTE_KRE) == 0)) {
-        goto exit;
-    }
-    pt = L2pte >> 32 << TARGET_PAGE_BITS;
-
-    /* L3 page table read.  */
-    index = (addr >> TARGET_PAGE_BITS) & 0x3ff;
-    L3pte = ldq_phys(pt + index*8);
-
-    phys = L3pte >> 32 << TARGET_PAGE_BITS;
-    if (unlikely((L3pte & PTE_VALID) == 0)) {
-        ret = MM_K_TNV;
-        goto exit;
-    }
-
-#if PAGE_READ != 1 || PAGE_WRITE != 2 || PAGE_EXEC != 4
-# error page bits out of date
 #endif
-
-    /* Check access violations.  */
-    if (L3pte & (PTE_KRE << mmu_idx)) {
-        prot |= PAGE_READ | PAGE_EXEC;
-    }
-    if (L3pte & (PTE_KWE << mmu_idx)) {
-        prot |= PAGE_WRITE;
-    }
-    if (unlikely((prot & prot_need) == 0 && prot_need)) {
-        goto exit;
-    }
-
-    /* Check fault-on-operation violations.  */
-    prot &= ~(L3pte >> 1);
-    ret = -1;
-    if (unlikely((prot & prot_need) == 0)) {
-        ret = (prot_need & PAGE_EXEC ? MM_K_FOE :
-               prot_need & PAGE_WRITE ? MM_K_FOW :
-               prot_need & PAGE_READ ? MM_K_FOR : -1);
-    }
-
- exit:
-    *pphys = phys;
-    *pprot = prot;
-    return ret;
 }
-#endif  // USE_NEW_6502
 
 
 
@@ -321,44 +207,14 @@ static int get_physical_address(CPUState *env, target_ulong addr,
 
 target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 {
-#ifndef USE_NEW_6502
-    target_ulong phys;
-    int prot, fail;
-
-    fail = get_physical_address(env, addr, 0, 0, &phys, &prot);
-    return (fail >= 0 ? -1 : phys);
-#else
     return addr & TARGET_PAGE_MASK;
-#endif
 }
 
 int cpu_alpha_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,
                                int mmu_idx)
 {
-#ifndef USE_NEW_6502
-
-    target_ulong phys;
-    int prot, fail;
-
-    fail = get_physical_address(env, addr, 1 << rw, mmu_idx, &phys, &prot);
-    if (unlikely(fail >= 0)) {
-        env->exception_index = EXCP_MMFAULT;
-        env->trap_arg0 = addr;
-        env->trap_arg1 = fail;
-        env->trap_arg2 = (rw == 2 ? -1 : rw);
-        return 1;
-    }
-
-    tlb_set_page(env, addr & TARGET_PAGE_MASK, phys & TARGET_PAGE_MASK,
-                 prot, mmu_idx, TARGET_PAGE_SIZE);
-
-#else
-
     tlb_set_page(env, addr & TARGET_PAGE_MASK, addr & TARGET_PAGE_MASK,
                  PAGE_READ | PAGE_WRITE | PAGE_EXEC, mmu_idx, TARGET_PAGE_SIZE);
-
-#endif
-
     return 0;
 }
 #endif /* USER_ONLY */
@@ -413,7 +269,7 @@ void do_interrupt (CPUState *env)
             break;
         }
         qemu_log("INT %6d: %s(%#x) pc=%016" PRIx64 " sp=%016" PRIx64 "\n",
-                 ++count, name, env->error_code, env->pc, env->ir[IR_SP]);
+                 ++count, name, env->error_code, env->pc, env->sp);
     }
 
     env->exception_index = -1;
@@ -483,31 +339,19 @@ void do_interrupt (CPUState *env)
 void cpu_dump_state (CPUState *env, FILE *f, fprintf_function cpu_fprintf,
                      int flags)
 {
-    static const char *linux_reg_names[] = {
-        "v0 ", "t0 ", "t1 ", "t2 ", "t3 ", "t4 ", "t5 ", "t6 ",
-        "t7 ", "s0 ", "s1 ", "s2 ", "s3 ", "s4 ", "s5 ", "fp ",
-        "a0 ", "a1 ", "a2 ", "a3 ", "a4 ", "a5 ", "t8 ", "t9 ",
-        "t10", "t11", "ra ", "t12", "at ", "gp ", "sp ", "zero",
-    };
-    int i;
-
     cpu_fprintf(f, "     PC  " TARGET_FMT_lx "      PS  %02x\n",
                 env->pc, env->ps);
-    for (i = 0; i < 31; i++) {
-        cpu_fprintf(f, "IR%02d %s " TARGET_FMT_lx " ", i,
-                    linux_reg_names[i], env->ir[i]);
-        if ((i % 3) == 2)
-            cpu_fprintf(f, "\n");
-    }
+
+    cpu_fprintf(f, "     AC  " TARGET_FMT_lx "      X  " TARGET_FMT_lx "\n",
+                env->ac, env->x);
+
+    cpu_fprintf(f, "     Y  " TARGET_FMT_lx "      SR  " TARGET_FMT_lx "\n",
+                env->y, env->sr);
+
+    cpu_fprintf(f, "     SP  " TARGET_FMT_lx "\n", env->sp);
 
     cpu_fprintf(f, "lock_a   " TARGET_FMT_lx " lock_v   " TARGET_FMT_lx "\n",
                 env->lock_addr, env->lock_value);
 
-    for (i = 0; i < 31; i++) {
-        cpu_fprintf(f, "FIR%02d    " TARGET_FMT_lx " ", i,
-                    *((uint64_t *)(&env->fir[i])));
-        if ((i % 3) == 2)
-            cpu_fprintf(f, "\n");
-    }
     cpu_fprintf(f, "\n");
 }

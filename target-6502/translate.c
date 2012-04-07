@@ -82,8 +82,7 @@ static TCGv regY;
 static TCGv regSR;
 static TCGv regSP;
 
-static TCGv cpu_ir[31];
-static TCGv cpu_fir[31];
+
 static TCGv cpu_lock_addr;
 static TCGv cpu_lock_st_addr;
 static TCGv cpu_lock_value;
@@ -93,15 +92,11 @@ static TCGv cpu_sysval;
 static TCGv cpu_usp;
 #endif
 
-/* register names */
-static char cpu_reg_names[10*4+21*5 + 10*5+21*6];
 
 #include "gen-icount.h"
 
 static void alpha_translate_init(void)
 {
-    int i;
-    char *p;
     static int done_init = 0;
 
     if (done_init)
@@ -117,23 +112,10 @@ static void alpha_translate_init(void)
     regSR = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sr), "SR");
     regSP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sp), "SP");
 
-
-    // Old Alpha stuff kept to avoid breaking the code:
-    p = cpu_reg_names;
-    for (i = 0; i < 31; i++) {
-        sprintf(p, "ir%d", i);
-        cpu_ir[i] = tcg_global_mem_new_i64(TCG_AREG0,
-                                           offsetof(CPUState, ir[i]), p);
-        p += (i < 10) ? 4 : 5;
-
-        sprintf(p, "fir%d", i);
-        cpu_fir[i] = tcg_global_mem_new_i64(TCG_AREG0,
-                                            offsetof(CPUState, fir[i]), p);
-        p += (i < 10) ? 5 : 6;
-    }
-
     cpu_pc = tcg_global_mem_new_i64(TCG_AREG0,
                                     offsetof(CPUState, pc), "pc");
+
+    // Old Alpha stuff kept to avoid breaking the code:
 
     cpu_lock_addr = tcg_global_mem_new_i64(TCG_AREG0,
                                            offsetof(CPUState, lock_addr),
@@ -203,6 +185,7 @@ static inline void gen_qemu_ldq_l(TCGv t0, TCGv t1, int flags)
     tcg_gen_mov_i64(cpu_lock_value, t0);
 }
 
+#if 0
 static inline void gen_load_mem(DisasContext *ctx,
                                 void (*tcg_gen_qemu_load)(TCGv t0, TCGv t1,
                                                           int flags),
@@ -273,6 +256,8 @@ static inline void gen_store_mem(DisasContext *ctx,
         tcg_temp_free(va);
     }
 }
+#endif
+
 
 #if 0
 static int use_goto_tb(DisasContext *ctx, uint64_t dest)
@@ -304,7 +289,7 @@ static int use_goto_tb(DisasContext *ctx, uint64_t dest)
 
 
 
-
+#if 0
 
 static void gen_cpys_internal(int ra, int rb, int rc, int inv_a, uint64_t mask)
 {
@@ -381,6 +366,7 @@ static inline void gen_fcpyse(int ra, int rb, int rc)
     gen_cpys_internal(ra, rb, rc, 0, 0xFFF0000000000000ULL);
 }
 
+#endif
 
 
 
@@ -605,34 +591,11 @@ void gen_intermediate_code_pc (CPUState *env, struct TranslationBlock *tb)
     gen_intermediate_code_internal(env, tb, 1);
 }
 
-struct cpu_def_t {
-    const char *name;
-    int implver, amask;
-};
 
-static const struct cpu_def_t cpu_defs[] = {
-    { "ev4",   IMPLVER_2106x, 0 },
-    { "ev5",   IMPLVER_21164, 0 },
-    { "ev56",  IMPLVER_21164, AMASK_BWX },
-    { "pca56", IMPLVER_21164, AMASK_BWX | AMASK_MVI },
-    { "ev6",   IMPLVER_21264, AMASK_BWX | AMASK_FIX | AMASK_MVI | AMASK_TRAP },
-    { "ev67",  IMPLVER_21264, (AMASK_BWX | AMASK_FIX | AMASK_CIX
-                               | AMASK_MVI | AMASK_TRAP | AMASK_PREFETCH), },
-    { "ev68",  IMPLVER_21264, (AMASK_BWX | AMASK_FIX | AMASK_CIX
-                               | AMASK_MVI | AMASK_TRAP | AMASK_PREFETCH), },
-    { "21064", IMPLVER_2106x, 0 },
-    { "21164", IMPLVER_21164, 0 },
-    { "21164a", IMPLVER_21164, AMASK_BWX },
-    { "21164pc", IMPLVER_21164, AMASK_BWX | AMASK_MVI },
-    { "21264", IMPLVER_21264, AMASK_BWX | AMASK_FIX | AMASK_MVI | AMASK_TRAP },
-    { "21264a", IMPLVER_21264, (AMASK_BWX | AMASK_FIX | AMASK_CIX
-                                | AMASK_MVI | AMASK_TRAP | AMASK_PREFETCH), }
-};
 
 CPUAlphaState * cpu_alpha_init (const char *cpu_model)
 {
     CPUAlphaState *env;
-    int implver, amask, i, max;
 
     env = g_malloc0(sizeof(CPUAlphaState));
     cpu_exec_init(env);
@@ -640,20 +603,9 @@ CPUAlphaState * cpu_alpha_init (const char *cpu_model)
     tlb_flush(env, 1);
 
     /* Default to ev67; no reason not to emulate insns by default.  */
-    implver = IMPLVER_21264;
-    amask = (AMASK_BWX | AMASK_FIX | AMASK_CIX | AMASK_MVI
+    env->implver = IMPLVER_21264;
+    env->amask = (AMASK_BWX | AMASK_FIX | AMASK_CIX | AMASK_MVI
              | AMASK_TRAP | AMASK_PREFETCH);
-
-    max = ARRAY_SIZE(cpu_defs);
-    for (i = 0; i < max; i++) {
-        if (strcmp (cpu_model, cpu_defs[i].name) == 0) {
-            implver = cpu_defs[i].implver;
-            amask = cpu_defs[i].amask;
-            break;
-        }
-    }
-    env->implver = implver;
-    env->amask = amask;
 
 #if defined (CONFIG_USER_ONLY)
     env->ps = PS_USER_MODE;

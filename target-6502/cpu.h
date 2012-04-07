@@ -20,8 +20,6 @@
 #if !defined (__CPU_ALPHA_H__)
 #define __CPU_ALPHA_H__
 
-#include "6502_new.h"
-
 #include "config.h"
 #include "qemu-common.h"
 
@@ -35,28 +33,16 @@
 
 #define TARGET_HAS_ICE 1
 
-#define ELF_MACHINE     EM_ALPHA
+#define ELF_MACHINE     EM_NONE
 
 #define ICACHE_LINE_SIZE 32
 #define DCACHE_LINE_SIZE 32
 
-#ifdef USE_NEW_6502
 
 #define TARGET_PAGE_BITS 16
 #define TARGET_PHYS_ADDR_SPACE_BITS 32
 #define TARGET_VIRT_ADDR_SPACE_BITS 32
 
-
-#else
-
-
-#define TARGET_PAGE_BITS 13
-
-/* ??? EV4 has 34 phys addr bits, EV5 has 40, EV6 has 44.  */
-#define TARGET_PHYS_ADDR_SPACE_BITS 44
-#define TARGET_VIRT_ADDR_SPACE_BITS (30 + TARGET_PAGE_BITS)
-
-#endif
 
 
 
@@ -264,10 +250,6 @@ struct CPUAlphaState {
 
     uint64_t    pc;     // This is temporarily 64 bits so that we don't break the remaining Alpha code...
 
-
-
-    uint64_t ir[31];
-    float64 fir[31];
     uint64_t unique;
     uint64_t lock_addr;
     uint64_t lock_st_addr;
@@ -306,8 +288,8 @@ struct CPUAlphaState {
     uint64_t vptptr;
     uint64_t sysval;
     uint64_t usp;
-    uint64_t shadow[8];
-    uint64_t scratch[24];
+//    uint64_t shadow[8];
+//    uint64_t scratch[24];
 #endif
 
     /* This alarm doesn't exist in real hardware; we wish it did.  */

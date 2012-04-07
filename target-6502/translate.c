@@ -39,7 +39,7 @@ typedef struct DisasContext DisasContext;
 struct DisasContext {
     struct TranslationBlock *tb;
     CPUAlphaState *env;
-    uint64_t pc;
+    uint32_t pc;
     int mem_idx;
 
     /* Current rounding mode for this TB.  */
@@ -112,28 +112,28 @@ static void alpha_translate_init(void)
     regSR = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sr), "SR");
     regSP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sp), "SP");
 
-    cpu_pc = tcg_global_mem_new_i64(TCG_AREG0,
-                                    offsetof(CPUState, pc), "pc");
+    cpu_pc = tcg_global_mem_new(TCG_AREG0,
+                                offsetof(CPUState, pc), "pc");
 
     // Old Alpha stuff kept to avoid breaking the code:
 
-    cpu_lock_addr = tcg_global_mem_new_i64(TCG_AREG0,
-                                           offsetof(CPUState, lock_addr),
-                                           "lock_addr");
-    cpu_lock_st_addr = tcg_global_mem_new_i64(TCG_AREG0,
-                                              offsetof(CPUState, lock_st_addr),
-                                              "lock_st_addr");
-    cpu_lock_value = tcg_global_mem_new_i64(TCG_AREG0,
-                                            offsetof(CPUState, lock_value),
-                                            "lock_value");
+    cpu_lock_addr = tcg_global_mem_new(TCG_AREG0,
+                                       offsetof(CPUState, lock_addr),
+                                       "lock_addr");
+    cpu_lock_st_addr = tcg_global_mem_new(TCG_AREG0,
+                                          offsetof(CPUState, lock_st_addr),
+                                          "lock_st_addr");
+    cpu_lock_value = tcg_global_mem_new(TCG_AREG0,
+                                        offsetof(CPUState, lock_value),
+                                        "lock_value");
 
-    cpu_unique = tcg_global_mem_new_i64(TCG_AREG0,
-                                        offsetof(CPUState, unique), "unique");
+    cpu_unique = tcg_global_mem_new(TCG_AREG0,
+                                    offsetof(CPUState, unique), "unique");
 #ifndef CONFIG_USER_ONLY
-    cpu_sysval = tcg_global_mem_new_i64(TCG_AREG0,
-                                        offsetof(CPUState, sysval), "sysval");
-    cpu_usp = tcg_global_mem_new_i64(TCG_AREG0,
-                                     offsetof(CPUState, usp), "usp");
+    cpu_sysval = tcg_global_mem_new(TCG_AREG0,
+                                    offsetof(CPUState, sysval), "sysval");
+    cpu_usp = tcg_global_mem_new(TCG_AREG0,
+                                 offsetof(CPUState, usp), "usp");
 #endif
 
     /* register helpers */
@@ -156,7 +156,7 @@ static void gen_excp_1(int exception, int error_code)
 
 static ExitStatus gen_excp(DisasContext *ctx, int exception, int error_code)
 {
-    tcg_gen_movi_i64(cpu_pc, ctx->pc);
+    tcg_gen_movi_i32(cpu_pc, ctx->pc);
     gen_excp_1(exception, error_code);
     return EXIT_NORETURN;
 }
@@ -169,23 +169,23 @@ static inline ExitStatus gen_invalid(DisasContext *ctx)
 
 
 
-
+#if 0
 
 static inline void gen_qemu_ldl_l(TCGv t0, TCGv t1, int flags)
 {
     tcg_gen_qemu_ld32s(t0, t1, flags);
-    tcg_gen_mov_i64(cpu_lock_addr, t1);
-    tcg_gen_mov_i64(cpu_lock_value, t0);
+    tcg_gen_mov_i32(cpu_lock_addr, t1);
+    tcg_gen_mov_i32(cpu_lock_value, t0);
 }
 
 static inline void gen_qemu_ldq_l(TCGv t0, TCGv t1, int flags)
 {
-    tcg_gen_qemu_ld64(t0, t1, flags);
-    tcg_gen_mov_i64(cpu_lock_addr, t1);
-    tcg_gen_mov_i64(cpu_lock_value, t0);
+    tcg_gen_qemu_ld32s(t0, t1, flags);
+    tcg_gen_mov_i32(cpu_lock_addr, t1);
+    tcg_gen_mov_i32(cpu_lock_value, t0);
 }
 
-#if 0
+
 static inline void gen_load_mem(DisasContext *ctx,
                                 void (*tcg_gen_qemu_load)(TCGv t0, TCGv t1,
                                                           int flags),
@@ -393,7 +393,7 @@ static inline uint64_t zapnot_mask(uint8_t lit)
  * The function uses the same register for all intermediate value...
  *   NOTE: I think this has a bug... NOT TESTED!...
  */
-static inline uint64_t gen_xind_mode_addr(TCGv reg, uint64_t code_addr)
+static inline uint64_t gen_xind_mode_addr(TCGv reg, uint32_t code_addr)
 {
     uint8_t zpg_imm = ldub_code(code_addr++);
 
@@ -406,13 +406,13 @@ static inline uint64_t gen_xind_mode_addr(TCGv reg, uint64_t code_addr)
     return code_addr;
 }
 
-static inline uint64_t gen_imm_mode(TCGv reg, uint64_t code_addr)
+static inline uint64_t gen_imm_mode(TCGv reg, uint32_t code_addr)
 {
     uint8_t imm = ldub_code(code_addr++);
     tcg_gen_movi_tl(reg, imm);
     return code_addr;
 }
-static inline uint64_t gen_xind_mode(TCGv reg, uint64_t code_addr)
+static inline uint64_t gen_xind_mode(TCGv reg, uint32_t code_addr)
 {
     code_addr = gen_xind_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld8u(reg, reg, 0);        // Outer []
@@ -422,7 +422,7 @@ static inline uint64_t gen_xind_mode(TCGv reg, uint64_t code_addr)
 
 
 
-static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
+static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 {
     fprintf(stderr, "A gerar: %"PRIX8", em %"PRIX16"\n", ldub_code(*paddr), (uint16_t)*paddr);
     uint8_t insn;
@@ -446,11 +446,11 @@ static ExitStatus translate_one(DisasContext *ctx, uint64_t *paddr)
         default:
         {
             TCGv_i32 tmp = tcg_temp_new_i32();
-            TCGv_i64 tmp2 = tcg_temp_new_i64();
+            TCGv_i32 tmp2 = tcg_temp_new_i32();
             tcg_gen_movi_i32(tmp, insn);
-            tcg_gen_movi_i64(tmp2, *paddr-1);
+            tcg_gen_movi_i32(tmp2, *paddr-1);
             gen_helper_printstuff(tmp2, tmp);
-            tcg_temp_free_i64(tmp2);
+            tcg_temp_free_i32(tmp2);
             tcg_temp_free_i32(tmp);
             return EXIT_PC_STALE;
         }
@@ -547,7 +547,7 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     case EXIT_NORETURN:
         break;
     case EXIT_PC_STALE:
-        tcg_gen_movi_i64(cpu_pc, ctx.pc);
+        tcg_gen_movi_i32(cpu_pc, ctx.pc);
         /* FALLTHRU */
     case EXIT_PC_UPDATED:
         if (env->singlestep_enabled) {

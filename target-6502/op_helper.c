@@ -68,16 +68,16 @@ static void QEMU_NORETURN arith_excp(int exc, uint64_t mask)
 
 
 
-void helper_printstuff (uint64_t addr, uint32_t instruction)
+void helper_printstuff (uint32_t addr, uint32_t instruction)
 {
-	fprintf(stderr, "\nNao implementado: addr=0x%"PRIX64", insn=0x%"PRIX32"!\n", addr, instruction);
-	// Isto é querer sair do QEMU "à campeão", mas dá jeito para testar...
-	fprintf(stderr, "Found unimplemented instruction. Shutting down . . .\n");
-	fprintf(stdout, "\n"); fflush(stdout);
-	exit(0);
+    fprintf(stderr, "\nNao implementado: addr=0x%"PRIX32", insn=0x%"PRIX32"!\n", addr, instruction);
+    // Isto é querer sair do QEMU "à campeão", mas dá jeito para testar...
+    fprintf(stderr, "Found unimplemented instruction. Shutting down . . .\n");
+    fprintf(stdout, "\n"); fflush(stdout);
+    exit(0);
 }
 
-void helper_printchar (uint64_t ch)
+void helper_printchar (uint32_t ch)
 {
     fprintf(stdout, "%c", (char)ch); fflush(stdout);
 }

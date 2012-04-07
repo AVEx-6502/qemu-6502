@@ -268,7 +268,7 @@ void do_interrupt (CPUState *env)
             name = "stq_c";
             break;
         }
-        qemu_log("INT %6d: %s(%#x) pc=%016" PRIx64 " sp=%016" PRIx64 "\n",
+        qemu_log("INT %6d: %s(%#x) pc=%016" PRIx32 " sp=%016" PRIx32 "\n",
                  ++count, name, env->error_code, env->pc, env->sp);
     }
 

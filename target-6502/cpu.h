@@ -23,7 +23,7 @@
 #include "config.h"
 #include "qemu-common.h"
 
-#define TARGET_LONG_BITS 64
+#define TARGET_LONG_BITS 32
 
 #define CPUState struct CPUAlphaState
 
@@ -241,19 +241,19 @@ typedef struct CPU6502State {
 struct CPUAlphaState {
     //      "General" Registers (they are really 8 bit, but as TCG doesn't
     // seem to have 8 bit registers, we are going to use more bits...
-    uint64_t    ac;
-    uint64_t    x;
-    uint64_t    y;
+    uint32_t    ac;
+    uint32_t    x;
+    uint32_t    y;
 
-    uint64_t    sr;     // These are the flags: NV-BDIZC
-    uint64_t    sp;
+    uint32_t    sr;     // These are the flags: NV-BDIZC
+    uint32_t    sp;
 
-    uint64_t    pc;     // This is temporarily 64 bits so that we don't break the remaining Alpha code...
+    uint32_t    pc;     // This is temporarily 64 bits so that we don't break the remaining Alpha code...
 
-    uint64_t unique;
-    uint64_t lock_addr;
-    uint64_t lock_st_addr;
-    uint64_t lock_value;
+    uint32_t unique;
+    uint32_t lock_addr;
+    uint32_t lock_st_addr;
+    uint32_t lock_value;
     float_status fp_status;
     /* The following fields make up the FPCR, but in FP_STATUS format.  */
     uint8_t fpcr_exc_status;
@@ -456,7 +456,7 @@ int cpu_alpha_exec(CPUAlphaState *s);
    is returned if the signal was handled by the virtual CPU.  */
 int cpu_alpha_signal_handler(int host_signum, void *pinfo,
                              void *puc);
-int cpu_alpha_handle_mmu_fault (CPUState *env, uint64_t address, int rw,
+int cpu_alpha_handle_mmu_fault (CPUState *env, uint32_t address, int rw,
                                 int mmu_idx);
 #define cpu_handle_mmu_fault cpu_alpha_handle_mmu_fault
 void do_interrupt (CPUState *env);

@@ -236,9 +236,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0xAE:  *paddr = gen_abs_mode(regX, *paddr);        return NO_EXIT;
         case 0xAC:  *paddr = gen_abs_mode(regY, *paddr);        return NO_EXIT;
         case 0xBD:  *paddr = gen_Xabs_mode(regAC, *paddr);      return NO_EXIT;
-        case 0xBC:  *paddr = gen_Xabs_mode(regY, *paddr);      return NO_EXIT;
+        case 0xBC:  *paddr = gen_Xabs_mode(regY, *paddr);       return NO_EXIT;
         case 0xB9:  *paddr = gen_Yabs_mode(regAC, *paddr);      return NO_EXIT;
-        case 0xBE:  *paddr = gen_Yabs_mode(regX, *paddr);      return NO_EXIT;
+        case 0xBE:  *paddr = gen_Yabs_mode(regX, *paddr);       return NO_EXIT;
 
         // Stores abs+?
         case 0x8D:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
@@ -252,6 +252,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0x98:  tcg_gen_mov_tl(regAC, regY);    return NO_EXIT;
         case 0xA8:  tcg_gen_mov_tl(regY,  regAC);   return NO_EXIT;
         case 0xAA:  tcg_gen_mov_tl(regX,  regAC);   return NO_EXIT;
+        case iTXS:  tcg_gen_mov_tl(regSP, regX);    return NO_EXIT;
+        case iTSX:  tcg_gen_mov_tl(regX,  regSP);   return NO_EXIT;
 
         // Adds
         case 0x69:  tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));    return NO_EXIT;
@@ -259,6 +261,23 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         // Jumps and branches
         case 0x4C:  tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr));  return EXIT_PC_UPDATED;
+
+        // Calls and rets
+        case iJSR: {
+            tcg_gen_movi_tl(regTMP, *paddr+1);  // The stack will receive the PC of the next instruction minus one.
+            tcg_gen_addi_tl(regSP, regSP, -1+0x100);        // First, decrement SP, then write16, then decrement again.
+            tcg_gen_qemu_st16(regTMP, regSP, 0);            // This is because the stack of the 6502 is not word
+            tcg_gen_addi_tl(regSP, regSP, -1-0x100);        // aligned, AND is decremented after write.
+            tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr)); // Jump to subroutine
+            return EXIT_PC_UPDATED;
+        }
+        case iRTS: {
+            tcg_gen_addi_tl(regSP, regSP, +1+0x100);
+            tcg_gen_qemu_ld16u(cpu_pc, regSP, 0);
+            tcg_gen_addi_tl(regSP, regSP, +1-0x100);
+            tcg_gen_addi_tl(cpu_pc, cpu_pc, 1);
+            return EXIT_PC_UPDATED;
+        }
 
 
         // NOP!

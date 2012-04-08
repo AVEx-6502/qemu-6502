@@ -21,7 +21,6 @@
 #define __CPU_6502_H__
 
 
-
 enum opcode {
     iTXS = 0x9A,
     iTSX = 0xBA,

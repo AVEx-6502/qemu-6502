@@ -181,34 +181,68 @@ static inline uint16_t getw_from_code(uint32_t *code_addr)
  * The function uses the same register for all intermediate value...
  *   NOTE: I think this has a bug... NOT TESTED!...
  */
-static inline uint64_t gen_abs_mode_addr(TCGv reg, uint32_t code_addr) {
+static inline uint32_t gen_abs_mode_addr(TCGv reg, uint32_t code_addr) {    // code_addr
     uint32_t base = getw_from_code(&code_addr);
     tcg_gen_movi_tl(reg, base);
     return code_addr;
 }
-static inline uint64_t gen_Xabs_mode_addr(TCGv reg, uint32_t code_addr) {
+static inline uint32_t gen_Xabs_mode_addr(TCGv reg, uint32_t code_addr) {   // X+code_addr
     uint32_t base = getw_from_code(&code_addr);
     tcg_gen_addi_tl(reg, regX, base);     // Add X
     return code_addr;
 }
-static inline uint64_t gen_Yabs_mode_addr(TCGv reg, uint32_t code_addr) {
+static inline uint32_t gen_Yabs_mode_addr(TCGv reg, uint32_t code_addr) {   // Y+code_addr
     uint32_t base = getw_from_code(&code_addr);
     tcg_gen_addi_tl(reg, regY, base);     // Add Y
     return code_addr;
 }
 
-static inline uint64_t gen_abs_mode(TCGv reg, uint32_t code_addr) {
+static inline uint32_t gen_abs_mode(TCGv reg, uint32_t code_addr) {     // [code_addr]
     code_addr = gen_abs_mode_addr(reg,code_addr);
     tcg_gen_qemu_ld8u(reg, reg, 0);
     return code_addr;
 }
-static inline uint64_t gen_Xabs_mode(TCGv reg, uint32_t code_addr) {
+static inline uint32_t gen_Xabs_mode(TCGv reg, uint32_t code_addr) {    // [X+code_addr]
     code_addr = gen_Xabs_mode_addr(reg,code_addr);
     tcg_gen_qemu_ld8u(reg, reg, 0);
     return code_addr;
 }
-static inline uint64_t gen_Yabs_mode(TCGv reg, uint32_t code_addr) {
+static inline uint32_t gen_Yabs_mode(TCGv reg, uint32_t code_addr) {    // [Y+code_addr]
     code_addr = gen_Yabs_mode_addr(reg,code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
+
+static inline uint32_t gen_zero_page_mode_addr(TCGv reg, uint32_t code_addr) {  // code_addr (only 1 byte)
+    uint32_t base = get_from_code(&code_addr);
+    tcg_gen_movi_tl(reg, base);
+    return code_addr;
+}
+static inline uint32_t gen_zero_page_X_mode_addr(TCGv reg, uint32_t code_addr) {    // X+code_addr (only 1 byte)
+    uint32_t base = get_from_code(&code_addr);
+    tcg_gen_addi_tl(reg, regX, base);     // Add X
+    tcg_gen_ext8u_tl(reg, reg);   // Only lowest byte matters
+    return code_addr;
+}
+static inline uint32_t gen_zero_page_Y_mode_addr(TCGv reg, uint32_t code_addr) {    // Y+code_addr (only 1 byte)
+    uint32_t base = get_from_code(&code_addr);
+    tcg_gen_addi_tl(reg, regY, base);     // Add Y
+    tcg_gen_ext8u_tl(reg, reg);   // Only lowest byte matters
+    return code_addr;
+}
+
+static inline uint32_t gen_zero_page_mode(TCGv reg, uint32_t code_addr) {  // [code_addr] (only 1 byte)
+    code_addr = gen_zero_page_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
+static inline uint32_t gen_zero_page_X_mode(TCGv reg, uint32_t code_addr) {    // [X+code_addr] (only 1 byte)
+    code_addr = gen_zero_page_X_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
+static inline uint32_t gen_zero_page_Y_mode(TCGv reg, uint32_t code_addr) {    // [Y+code_addr] (only 1 byte)
+    code_addr = gen_zero_page_Y_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld8u(reg, reg, 0);
     return code_addr;
 }
@@ -240,12 +274,28 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0xB9:  *paddr = gen_Yabs_mode(regAC, *paddr);      return NO_EXIT;
         case 0xBE:  *paddr = gen_Yabs_mode(regX, *paddr);       return NO_EXIT;
 
+        // Loads Zero-Page
+        case 0xA5:  *paddr = gen_zero_page_mode(regAC, *paddr);       return NO_EXIT;
+        case 0xB5:  *paddr = gen_zero_page_X_mode(regAC, *paddr);     return NO_EXIT;
+        case 0xA6:  *paddr = gen_zero_page_mode(regX, *paddr);        return NO_EXIT;
+        case 0xB6:  *paddr = gen_zero_page_Y_mode(regX, *paddr);      return NO_EXIT;
+        case 0xA4:  *paddr = gen_zero_page_mode(regY, *paddr);        return NO_EXIT;
+        case 0xB4:  *paddr = gen_zero_page_X_mode(regY, *paddr);      return NO_EXIT;
+
         // Stores abs+?
         case 0x8D:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
         case 0x8E:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regX, regTMP, 0);  return NO_EXIT;
         case 0x8C:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regY, regTMP, 0);  return NO_EXIT;
         case 0x9D:  *paddr = gen_Xabs_mode_addr(regTMP, *paddr); tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
         case 0x99:  *paddr = gen_Yabs_mode_addr(regTMP, *paddr); tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
+
+        // Stores Zero-Page
+        case 0x85:  *paddr = gen_zero_page_mode_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
+        case 0x95:  *paddr = gen_zero_page_X_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
+        case 0x86:  *paddr = gen_zero_page_mode_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regX, regTMP, 0);  return NO_EXIT;
+        case 0x96:  *paddr = gen_zero_page_Y_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regX, regTMP, 0);  return NO_EXIT;
+        case 0x84:  *paddr = gen_zero_page_mode_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regY, regTMP, 0);  return NO_EXIT;
+        case 0x94:  *paddr = gen_zero_page_X_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regY, regTMP, 0);  return NO_EXIT;
 
         // Simple transfers between registers...
         case 0x8A:  tcg_gen_mov_tl(regAC, regX);    return NO_EXIT;

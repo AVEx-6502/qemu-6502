@@ -265,7 +265,7 @@ static inline uint32_t gen_indirect_X_mode(TCGv reg, uint32_t code_addr) {   // 
 }
 
 static uint32_t gen_Y_indirect_addr(TCGv reg, uint32_t code_addr) {  // [code_addr]+Y (2 bytes)
-    code_addr = gen_abs_mode_addr(reg, code_addr);
+    code_addr = gen_zero_page_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld16u(reg, reg, 0);
     tcg_gen_add_tl(reg, reg, regY);     // Add Y
     tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
@@ -442,11 +442,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_andi_tl(regTMP, regSR, 0x01);   // Put carry flag in TMP reg
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
             tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));
-            tcg_gen_andi_tl(regTMP, regAC, 0xFF00);   // Calculate carry
-            tcg_gen_not_tl(regTMP, regTMP);
-            tcg_gen_not_tl(regTMP, regTMP);
+            tcg_gen_andi_tl(regSR, regSR, ~0x01);   // Clear carry
+            tcg_gen_shri_tl(regTMP, regAC, 8);   // Calculate carry
             tcg_gen_or_tl(regSR, regSR, regTMP);    // Set carry in SR reg
-            tcg_gen_ext16u_tl(regAC, regAC);        // Truncate to 16 bits
+            tcg_gen_ext8u_tl(regAC, regAC);        // Truncate to 16 bits
             tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
             return NO_EXIT;
         }
@@ -658,6 +657,7 @@ CPU6502State * cpu_6502_init (const char *cpu_model)
     cpu6502_translate_init();
     tlb_flush(env, 1);
 
+    env->sr = 0x20;     // Flag in bit 5 is always 1
     env->last_res = 1;  // CPU must start with flags N and Z set to 0, so this can't be 0
 
     /* Default to ev67; no reason not to emulate insns by default.  */

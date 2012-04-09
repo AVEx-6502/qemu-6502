@@ -138,30 +138,6 @@ static ExitStatus gen_excp(DisasContext *ctx, int exception, int error_code)
 
 
 
-
-#if 0
-static int use_goto_tb(DisasContext *ctx, uint64_t dest)
-{
-    /* Check for the dest on the same page as the start of the TB.  We
-       also want to suppress goto_tb in the case of single-steping and IO.  */
-    return (((ctx->tb->pc ^ dest) & TARGET_PAGE_MASK) == 0
-            && !ctx->env->singlestep_enabled
-            && !(ctx->tb->cflags & CF_LAST_IO));
-}
-#endif
-
-#define QUAL_RM_N       0x080   /* Round mode nearest even */
-#define QUAL_RM_C       0x000   /* Round mode chopped */
-#define QUAL_RM_M       0x040   /* Round mode minus infinity */
-#define QUAL_RM_D       0x0c0   /* Round mode dynamic */
-#define QUAL_RM_MASK    0x0c0
-
-#define QUAL_U          0x100   /* Underflow enable (fp output) */
-#define QUAL_V          0x100   /* Overflow enable (int output) */
-#define QUAL_S          0x400   /* Software completion enable */
-#define QUAL_I          0x200   /* Inexact detection enable */
-
-
 /* Inlines for addressing modes...
  * First, we have self-descriptive get_from_code function.
  * Then, we have functions that load addresses.
@@ -288,167 +264,149 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
      * operand, or the clue to find it. The size and presence of any operand can
      * be rightly inferred from the opcode.
      */
-    switch(insn=get_from_code(paddr)) {
-        // Immediate loads
-        case 0xA0: {
-            tcg_gen_movi_tl(regY, get_from_code(paddr));
-            tcg_gen_mov_tl(reg_last_res, regY);    // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xA2: {
-            tcg_gen_movi_tl(regX, get_from_code(paddr));
-            tcg_gen_mov_tl(reg_last_res, regX);    // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xA9: {
-            tcg_gen_movi_tl(regAC, get_from_code(paddr));
-            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z and N flag computation
+    switch(insn = get_from_code(paddr)) {
+
+        TCGv used_reg;
+        uint32_t (*addr_func)(TCGv, uint32_t);
+
+        /*
+         *  Loads
+         */
+
+        // Immediate
+        case 0xA0:  used_reg = regY;     goto load_imm_gen;
+        case 0xA2:  used_reg = regX;     goto load_imm_gen;
+        case 0xA9:  used_reg = regAC;    goto load_imm_gen;
+
+        load_imm_gen: {
+            tcg_gen_movi_tl(used_reg, get_from_code(paddr));
+            tcg_gen_mov_tl(reg_last_res, used_reg); // Save result for Z and N flag computation
             return NO_EXIT;
         }
 
-        // Loads abs+?
-        case 0xAD: {
-            *paddr = gen_abs_mode(regAC, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xAE: {
-            *paddr = gen_abs_mode(regX, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regX); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xAC: {
-            *paddr = gen_abs_mode(regY, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regY); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xBD: {
-            *paddr = gen_Xabs_mode(regAC, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xBC: {
-            *paddr = gen_Xabs_mode(regY, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regY); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xB9: {
-            *paddr = gen_Yabs_mode(regAC, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xBE: {
-            *paddr = gen_Yabs_mode(regX, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regX); // Save result for Z and N flag computation
+        // Absolute
+        case 0xAD:  used_reg = regAC;    addr_func = gen_abs_mode;           goto load_gen;
+        case 0xAE:  used_reg = regX;     addr_func = gen_abs_mode;           goto load_gen;
+        case 0xAC:  used_reg = regY;     addr_func = gen_abs_mode;           goto load_gen;
+        // Absolute+X
+        case 0xBD:  used_reg = regAC;    addr_func = gen_Xabs_mode;          goto load_gen;
+        case 0xBC:  used_reg = regY;     addr_func = gen_Xabs_mode;          goto load_gen;
+        // Absolute+Y
+        case 0xB9:  used_reg = regAC;    addr_func = gen_Yabs_mode;          goto load_gen;
+        case 0xBE:  used_reg = regX;     addr_func = gen_Yabs_mode;          goto load_gen;
+        // Zero Page
+        case 0xA5:  used_reg = regAC;    addr_func = gen_zero_page_mode;     goto load_gen;
+        case 0xB5:  used_reg = regAC;    addr_func = gen_zero_page_X_mode;   goto load_gen;
+        case 0xA6:  used_reg = regX;     addr_func = gen_zero_page_mode;     goto load_gen;
+        case 0xB6:  used_reg = regX;     addr_func = gen_zero_page_Y_mode;   goto load_gen;
+        case 0xA4:  used_reg = regY;     addr_func = gen_zero_page_mode;     goto load_gen;
+        case 0xB4:  used_reg = regY;     addr_func = gen_zero_page_X_mode;   goto load_gen;
+        // Indirect
+        case 0xA1:  used_reg = regAC;    addr_func = gen_indirect_X_mode;    goto load_gen;
+        case 0xB1:  used_reg = regAC;    addr_func = gen_Y_indirect_mode;    goto load_gen;
+
+        load_gen: {
+            *paddr = (*addr_func)(used_reg, *paddr);
+            tcg_gen_mov_tl(reg_last_res, used_reg);    // Save result for Z and N flag computation
             return NO_EXIT;
         }
 
-        // Loads Zero-Page
-        case 0xA5: {
-            *paddr = gen_zero_page_mode(regAC, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xB5: {
-            *paddr = gen_zero_page_X_mode(regAC, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xA6: {
-            *paddr = gen_zero_page_mode(regX, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regX); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xB6: {
-            *paddr = gen_zero_page_Y_mode(regX, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regX); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xA4: {
-            *paddr = gen_zero_page_mode(regY, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regY); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xB4: {
-            *paddr = gen_zero_page_X_mode(regY, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regY); // Save result for Z and N flag computation
+        /*
+         *  Stores
+         */
+
+        // Absolute
+        case 0x8D:  addr_func = gen_abs_mode_addr;      used_reg = regAC;          goto store_gen;
+        case 0x8E:  addr_func = gen_abs_mode_addr;      used_reg = regX;           goto store_gen;
+        case 0x8C:  addr_func = gen_abs_mode_addr;      used_reg = regY;           goto store_gen;
+
+        // Absolute+?
+        case 0x9D:  addr_func = gen_Xabs_mode_addr;      used_reg = regAC;         goto store_gen;
+        case 0x99:  addr_func = gen_Yabs_mode_addr;      used_reg = regAC;         goto store_gen;
+
+        // Zero-Page
+        case 0x85:  addr_func = gen_zero_page_mode_addr;     used_reg = regAC;     goto store_gen;
+        case 0x95:  addr_func = gen_zero_page_X_mode_addr;   used_reg = regAC;     goto store_gen;
+        case 0x86:  addr_func = gen_zero_page_mode_addr;     used_reg = regX;      goto store_gen;
+        case 0x96:  addr_func = gen_zero_page_Y_mode_addr;   used_reg = regX;      goto store_gen;
+        case 0x84:  addr_func = gen_zero_page_mode_addr;     used_reg = regY;      goto store_gen;
+        case 0x94:  addr_func = gen_zero_page_X_mode_addr;   used_reg = regY;      goto store_gen;
+                                                                                   goto store_gen;
+        // Indirect
+        case 0x81:  addr_func = gen_indirect_X_addr;         used_reg = regAC;     goto store_gen;
+        case 0x91:  addr_func = gen_Y_indirect_addr;         used_reg = regAC;     goto store_gen;
+
+        store_gen: {
+            *paddr = (*addr_func)(regTMP, *paddr);
+            tcg_gen_qemu_st8(used_reg, regTMP, 0);
             return NO_EXIT;
         }
 
-        // Loads indirect
-        case 0xA1: {
-            *paddr = gen_indirect_X_mode(regAC, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xB1: {
-            *paddr = gen_Y_indirect_mode(regAC, *paddr);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
+        /*
+         *  Simple transfers between registers
+         */
+        TCGv src_reg;
+        TCGv dst_reg;
+
+        case 0x8A:      src_reg = regX;      dst_reg = regAC;       goto reg_transfer_gen;
+        case 0x98:      src_reg = regY;      dst_reg = regAC;       goto reg_transfer_gen;
+        case 0xA8:      src_reg = regAC;     dst_reg = regY;        goto reg_transfer_gen;
+        case 0xAA:      src_reg = regAC;     dst_reg = regX;        goto reg_transfer_gen;
+        case iTSX:      src_reg = regSP;     dst_reg = regX;        goto reg_transfer_gen;
+
+        reg_transfer_gen: {
+            tcg_gen_mov_tl(dst_reg, src_reg);
+            tcg_gen_mov_tl(reg_last_res, dst_reg); // Save result for Z and N flag computation
             return NO_EXIT;
         }
 
-        // Stores abs+?
-        case 0x8D:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
-        case 0x8E:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regX, regTMP, 0);  return NO_EXIT;
-        case 0x8C:  *paddr = gen_abs_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regY, regTMP, 0);  return NO_EXIT;
-        case 0x9D:  *paddr = gen_Xabs_mode_addr(regTMP, *paddr); tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
-        case 0x99:  *paddr = gen_Yabs_mode_addr(regTMP, *paddr); tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
-
-        // Stores Zero-Page
-        case 0x85:  *paddr = gen_zero_page_mode_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
-        case 0x95:  *paddr = gen_zero_page_X_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
-        case 0x86:  *paddr = gen_zero_page_mode_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regX, regTMP, 0);  return NO_EXIT;
-        case 0x96:  *paddr = gen_zero_page_Y_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regX, regTMP, 0);  return NO_EXIT;
-        case 0x84:  *paddr = gen_zero_page_mode_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regY, regTMP, 0);  return NO_EXIT;
-        case 0x94:  *paddr = gen_zero_page_X_mode_addr(regTMP, *paddr);  tcg_gen_qemu_st8(regY, regTMP, 0);  return NO_EXIT;
-
-        // Stores indirect
-        case 0x81:  *paddr = gen_indirect_X_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
-        case 0x91:  *paddr = gen_Y_indirect_addr(regTMP, *paddr);    tcg_gen_qemu_st8(regAC, regTMP, 0); return NO_EXIT;
-
-        // Simple transfers between registers...
-        case 0x8A: {
-            tcg_gen_mov_tl(regAC, regX);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0x98: {
-            tcg_gen_mov_tl(regAC, regY);
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xA8: {
-            tcg_gen_mov_tl(regY, regAC);
-            tcg_gen_mov_tl(reg_last_res, regY); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
-        case 0xAA: {
-            tcg_gen_mov_tl(regX, regAC);
-            tcg_gen_mov_tl(reg_last_res, regX); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
+        // Special case: does not change the flags
         case iTXS: {
             tcg_gen_mov_tl(regSP, regX);
             return NO_EXIT;
         }
-        case iTSX: {
-            tcg_gen_mov_tl(regX, regSP);
-            tcg_gen_mov_tl(reg_last_res, regX); // Save result for Z and N flag computation
-            return NO_EXIT;
-        }
 
-        // Adds
+        /*
+         *  Adds
+         */
+
+         // Immediate Add
         case 0x69: {
             tcg_gen_andi_tl(regTMP, regSR, 0x01);   // Put carry flag in TMP reg
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
             tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));
             tcg_gen_andi_tl(regSR, regSR, ~0x01);   // Clear carry
-            tcg_gen_shri_tl(regTMP, regAC, 8);   // Calculate carry
+            tcg_gen_shri_tl(regTMP, regAC, 8);      // Calculate carry
             tcg_gen_or_tl(regSR, regSR, regTMP);    // Set carry in SR reg
-            tcg_gen_ext8u_tl(regAC, regAC);        // Truncate to 16 bits
-            tcg_gen_mov_tl(reg_last_res, regAC); // Save result for Z and N flag computation
+            tcg_gen_ext8u_tl(regAC, regAC);         // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z and N flag computation
+            // TODO: V flag
             return NO_EXIT;
         }
+
+        case 0x6D:  addr_func = gen_abs_mode;           goto add_gen;
+        case 0x65:  addr_func = gen_zero_page_mode;     goto add_gen;
+        case 0x61:  addr_func = gen_indirect_X_mode;    goto add_gen;
+        case 0x71:  addr_func = gen_Y_indirect_mode;    goto add_gen;
+        case 0x75:  addr_func = gen_zero_page_X_mode;   goto add_gen;
+        case 0x7D:  addr_func = gen_Xabs_mode;          goto add_gen;
+        case 0x79:  addr_func = gen_Yabs_mode;          goto add_gen;
+
+        add_gen: {
+            tcg_gen_andi_tl(regTMP, regSR, 0x01);   // Put carry flag in TMP reg
+            tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
+            *paddr = (*addr_func)(regTMP, *paddr);  // Get the value to add
+            tcg_gen_add_tl(regAC, regAC, regTMP);   // Add it
+            tcg_gen_andi_tl(regSR, regSR, ~0x01);   // Clear carry
+            tcg_gen_shri_tl(regTMP, regAC, 8);      // Calculate carry
+            tcg_gen_or_tl(regSR, regSR, regTMP);    // Set carry in SR reg
+            tcg_gen_ext8u_tl(regAC, regAC);         // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z and N flag computation
+            // TODO: V flag
+            return NO_EXIT;
+        }
+
+
 
         // Jumps and branches
         case 0x4C:  tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr));  return EXIT_PC_UPDATED;

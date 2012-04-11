@@ -228,8 +228,7 @@ static inline uint32_t gen_zero_page_Y_mode(TCGv reg, uint32_t code_addr) {    /
 }
 
 static inline uint32_t gen_indirect_X_addr(TCGv reg, uint32_t code_addr) {   // [X+code_addr] (2 bytes)
-    // TODO: What happens when X+code_addr is 0xFF: do we get the address from 0xFF 0x100 or 0xFF 0x00?
-    // Currently 0xFF 0x100 is being used.
+    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
     code_addr = gen_zero_page_X_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld16u(reg, reg, 0);
     return code_addr;
@@ -241,6 +240,7 @@ static inline uint32_t gen_indirect_X_mode(TCGv reg, uint32_t code_addr) {   // 
 }
 
 static uint32_t gen_Y_indirect_addr(TCGv reg, uint32_t code_addr) {  // [code_addr]+Y (2 bytes)
+    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
     code_addr = gen_zero_page_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld16u(reg, reg, 0);
     tcg_gen_add_tl(reg, reg, regY);     // Add Y
@@ -280,7 +280,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         load_imm_gen: {
             tcg_gen_movi_tl(used_reg, get_from_code(paddr));
-            tcg_gen_mov_tl(reg_last_res, used_reg); // Save result for Z and N flag computation
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0xFF00);    // Save result for Z and N flag computation
+            tcg_gen_or_tl(reg_last_res, reg_last_res, used_reg);
             return NO_EXIT;
         }
 
@@ -307,7 +308,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         load_gen: {
             *paddr = (*addr_func)(used_reg, *paddr);
-            tcg_gen_mov_tl(reg_last_res, used_reg);    // Save result for Z and N flag computation
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0xFF00);    // Save result for Z and N flag computation
+            tcg_gen_or_tl(reg_last_res, reg_last_res, used_reg);
             return NO_EXIT;
         }
 
@@ -356,7 +358,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         reg_transfer_gen: {
             tcg_gen_mov_tl(dst_reg, src_reg);
-            tcg_gen_mov_tl(reg_last_res, dst_reg); // Save result for Z and N flag computation
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0xFF00);    // Save result for Z and N flag computation
+            tcg_gen_or_tl(reg_last_res, reg_last_res, dst_reg);
             return NO_EXIT;
         }
 
@@ -372,14 +375,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
          // Immediate Add
         case 0x69: {
-            tcg_gen_andi_tl(regTMP, regSR, 0x01);   // Put carry flag in TMP reg
+            tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
             tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));
-            tcg_gen_andi_tl(regSR, regSR, ~0x01);   // Clear carry
-            tcg_gen_shri_tl(regTMP, regAC, 8);      // Calculate carry
-            tcg_gen_or_tl(regSR, regSR, regTMP);    // Set carry in SR reg
+            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z, N and C flag computation
             tcg_gen_ext8u_tl(regAC, regAC);         // Truncate to 8 bits
-            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z and N flag computation
+
             // TODO: V flag
             return NO_EXIT;
         }
@@ -393,15 +394,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0x79:  addr_func = gen_Yabs_mode;          goto add_gen;
 
         add_gen: {
-            tcg_gen_andi_tl(regTMP, regSR, 0x01);   // Put carry flag in TMP reg
+            tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
             *paddr = (*addr_func)(regTMP, *paddr);  // Get the value to add
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add it
-            tcg_gen_andi_tl(regSR, regSR, ~0x01);   // Clear carry
-            tcg_gen_shri_tl(regTMP, regAC, 8);      // Calculate carry
-            tcg_gen_or_tl(regSR, regSR, regTMP);    // Set carry in SR reg
+            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z, N and C flag computation
             tcg_gen_ext8u_tl(regAC, regAC);         // Truncate to 8 bits
-            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z and N flag computation
+
             // TODO: V flag
             return NO_EXIT;
         }
@@ -414,11 +413,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         // Calls and rets
         case iJSR: {
             tcg_gen_movi_tl(regTMP, *paddr+1);  // The stack will receive the PC of the next instruction minus one.
-            tcg_gen_addi_tl(regSP, regSP, -1+0x100);        // First, decrement SP, then write16, then decrement again.
-            tcg_gen_ext16u_tl(regSP, regSP);        // Truncate to 16 bits
+            tcg_gen_addi_tl(regSP, regSP, -1+0x100);        // First, decrement SP, then write, then decrement again.
             tcg_gen_qemu_st16(regTMP, regSP, 0);            // This is because the stack of the 6502 is not word
             tcg_gen_addi_tl(regSP, regSP, -1-0x100);        // aligned, AND is decremented after write.
-            tcg_gen_ext16u_tl(regSP, regSP);        // Truncate to 16 bits
             tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr)); // Jump to subroutine
             return EXIT_PC_UPDATED;
         }
@@ -427,14 +424,15 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_qemu_ld16u(cpu_pc, regSP, 0);
             tcg_gen_addi_tl(regSP, regSP, +1-0x100);
             tcg_gen_addi_tl(cpu_pc, cpu_pc, 1);
+            tcg_gen_ext16u_tl(cpu_pc, regSP);        // Truncate to 16 bits
             return EXIT_PC_UPDATED;
         }
 
         // SEC
-        case 0x38:  tcg_gen_ori_tl(regSR, regSR, 0x01);     return NO_EXIT;
+        case 0x38:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
 
         // CLC
-        case 0x18:  tcg_gen_andi_tl(regSR, regSR, ~0x01);   return NO_EXIT;
+        case 0x18:  tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x00FF);    return NO_EXIT;
 
 
 

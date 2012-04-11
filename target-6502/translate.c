@@ -138,6 +138,28 @@ static ExitStatus gen_excp(DisasContext *ctx, int exception, int error_code)
 
 
 
+
+
+enum opcode {
+    iADC_imm=0x69, iADC_abs=0x6D, iADC_zpg=0x65, iADC_Xind=0x61, iADC_indY=0x71, iADC_zpgX=0x75, iADC_absX=0x7D, iADC_absY=0x79,
+    iAND_imm=0x29, iAND_abs=0x2D, iAND_zpg=0x25, iAND_Xind=0x21, iAND_indY=0x31, iAND_zpgX=0x35, iAND_absX=0x3D, iAND_absY=0x39,
+    iCMP_imm=0xC9, iCMP_abs=0xCD, iCMP_zpg=0xC5, iCMP_Xind=0xC1, iCMP_indY=0xD1, iCMP_zpgX=0xD5, iCMP_absX=0xDD, iCMP_absY=0xD9,
+    iEOR_imm=0x49, iEOR_abs=0x4D, iEOR_zpg=0x45, iEOR_Xind=0x41, iEOR_indY=0x51, iEOR_zpgX=0x55, iEOR_absX=0x5D, iEOR_absY=0x59,
+    iLDA_imm=0xA9, iLDA_abs=0xAD, iLDA_zpg=0xA5, iLDA_Xind=0xA1, iLDA_indY=0xB1, iLDA_zpgX=0xB5, iLDA_absX=0xBD, iLDA_absY=0xB9,
+
+    iTXS = 0x9A,
+    iTSX = 0xBA,
+
+    iPHA = 0x48,
+    iPHP = 0x08,
+    iPLA = 0x68,
+    iPLP = 0x28,
+
+    iJSR = 0x20,
+    iRTS = 0x60,
+};
+
+
 /* Inlines for addressing modes...
  * First, we have self-descriptive get_from_code function.
  * Then, we have functions that load addresses.

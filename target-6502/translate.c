@@ -146,6 +146,7 @@ enum opcode {
     iCMP_imm=0xC9, iCMP_abs=0xCD, iCMP_zpg=0xC5, iCMP_Xind=0xC1, iCMP_indY=0xD1, iCMP_zpgX=0xD5, iCMP_absX=0xDD, iCMP_absY=0xD9,
     iEOR_imm=0x49, iEOR_abs=0x4D, iEOR_zpg=0x45, iEOR_Xind=0x41, iEOR_indY=0x51, iEOR_zpgX=0x55, iEOR_absX=0x5D, iEOR_absY=0x59,
     iLDA_imm=0xA9, iLDA_abs=0xAD, iLDA_zpg=0xA5, iLDA_Xind=0xA1, iLDA_indY=0xB1, iLDA_zpgX=0xB5, iLDA_absX=0xBD, iLDA_absY=0xB9,
+    iORA_imm=0x09, iORA_abs=0x0D, iORA_zpg=0x05, iORA_Xind=0x01, iORA_indY=0x11, iORA_zpgX=0x15, iORA_absX=0x1D, iORA_absY=0x19,
 
     iJMP_abs = 0x4C, iJMP_ind = 0x6C,
 
@@ -584,6 +585,62 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);
             tcg_gen_qemu_st8(reg_value, regTMP, 0);     // Store back the value
             tcg_temp_free(reg_value);
+            return NO_EXIT;
+        }
+
+
+        /*
+         *  ANDs, ORs and XORs
+         */
+        void (*bitwise_func_imm)(TCGv,TCGv,int32_t);
+        void (*bitwise_func)(TCGv,TCGv,TCGv);
+
+        // Immediate
+        case iAND_imm:  bitwise_func_imm = tcg_gen_andi_tl;     goto bitwise_gen_imm;
+        case iORA_imm:  bitwise_func_imm = tcg_gen_ori_tl;      goto bitwise_gen_imm;
+        case iEOR_imm:  bitwise_func_imm = tcg_gen_xori_tl;     goto bitwise_gen_imm;
+
+        bitwise_gen_imm: {
+            (*bitwise_func_imm)(regAC, regAC, get_from_code(paddr));
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
+            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);
+            return NO_EXIT;
+        }
+
+        // Other addressing modes
+        case iAND_abs:  addr_func = gen_abs_mode;           bitwise_func = tcg_gen_and_tl;     goto bitwise_gen;
+        case iORA_abs:  addr_func = gen_abs_mode;           bitwise_func = tcg_gen_or_tl;      goto bitwise_gen;
+        case iEOR_abs:  addr_func = gen_abs_mode;           bitwise_func = tcg_gen_xor_tl;     goto bitwise_gen;
+
+        case iAND_zpg:  addr_func = gen_zero_page_mode;     bitwise_func = tcg_gen_and_tl;     goto bitwise_gen;
+        case iORA_zpg:  addr_func = gen_zero_page_mode;     bitwise_func = tcg_gen_or_tl;      goto bitwise_gen;
+        case iEOR_zpg:  addr_func = gen_zero_page_mode;     bitwise_func = tcg_gen_xor_tl;     goto bitwise_gen;
+
+        case iAND_Xind:  addr_func = gen_indirect_X_mode;   bitwise_func = tcg_gen_and_tl;     goto bitwise_gen;
+        case iORA_Xind:  addr_func = gen_indirect_X_mode;   bitwise_func = tcg_gen_or_tl;      goto bitwise_gen;
+        case iEOR_Xind:  addr_func = gen_indirect_X_mode;   bitwise_func = tcg_gen_xor_tl;     goto bitwise_gen;
+
+        case iAND_indY:  addr_func = gen_Y_indirect_mode;   bitwise_func = tcg_gen_and_tl;     goto bitwise_gen;
+        case iORA_indY:  addr_func = gen_Y_indirect_mode;   bitwise_func = tcg_gen_or_tl;      goto bitwise_gen;
+        case iEOR_indY:  addr_func = gen_Y_indirect_mode;   bitwise_func = tcg_gen_xor_tl;     goto bitwise_gen;
+
+        case iAND_zpgX:  addr_func = gen_zero_page_X_mode;  bitwise_func = tcg_gen_and_tl;     goto bitwise_gen;
+        case iORA_zpgX:  addr_func = gen_zero_page_X_mode;  bitwise_func = tcg_gen_or_tl;      goto bitwise_gen;
+        case iEOR_zpgX:  addr_func = gen_zero_page_X_mode;  bitwise_func = tcg_gen_xor_tl;     goto bitwise_gen;
+
+        case iAND_absX:  addr_func = gen_Xabs_mode;         bitwise_func = tcg_gen_and_tl;     goto bitwise_gen;
+        case iORA_absX:  addr_func = gen_Xabs_mode;         bitwise_func = tcg_gen_or_tl;      goto bitwise_gen;
+        case iEOR_absX:  addr_func = gen_Xabs_mode;         bitwise_func = tcg_gen_xor_tl;     goto bitwise_gen;
+
+        case iAND_absY:  addr_func = gen_Yabs_mode;         bitwise_func = tcg_gen_and_tl;     goto bitwise_gen;
+        case iORA_absY:  addr_func = gen_Yabs_mode;         bitwise_func = tcg_gen_or_tl;      goto bitwise_gen;
+        case iEOR_absY:  addr_func = gen_Yabs_mode;         bitwise_func = tcg_gen_xor_tl;     goto bitwise_gen;
+
+        bitwise_gen: {
+            *paddr = (*addr_func)(regTMP, *paddr);
+            (*bitwise_func)(regAC, regAC, regTMP);
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
+            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);
             return NO_EXIT;
         }
 

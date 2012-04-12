@@ -161,6 +161,8 @@ enum opcode {
     iJSR = 0x20,
     iRTS = 0x60,
 
+    iBPL=0x10, iBMI=0x30, iBCC=0x90, iBCS=0xB0, iBNE=0xD0, iBEQ=0xF0,
+
 
     iSEC = 0x38,
 };
@@ -481,12 +483,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         int cond;
         int mask;
-        case 0xF0:  cond = TCG_COND_NE;     mask = 0x00FF;      goto br_gen;
-        case 0xD0:  cond = TCG_COND_EQ;     mask = 0x00FF;      goto br_gen;
-        case 0x10:  cond = TCG_COND_NE;     mask = 0x0080;      goto br_gen;
-        case 0x30:  cond = TCG_COND_EQ;     mask = 0x0080;      goto br_gen;
-        case 0x90:  cond = TCG_COND_NE;     mask = 0x0100;      goto br_gen;
-        case 0xB0:  cond = TCG_COND_EQ;     mask = 0x0100;      goto br_gen;
+        case iBEQ:  cond = TCG_COND_NE;     mask = 0x00FF;      goto br_gen;
+        case iBNE:  cond = TCG_COND_EQ;     mask = 0x00FF;      goto br_gen;
+        case iBPL:  cond = TCG_COND_NE;     mask = 0x0080;      goto br_gen;
+        case iBMI:  cond = TCG_COND_EQ;     mask = 0x0080;      goto br_gen;
+        case iBCC:  cond = TCG_COND_NE;     mask = 0x0100;      goto br_gen;
+        case iBCS:  cond = TCG_COND_EQ;     mask = 0x0100;      goto br_gen;
 
         br_gen: {
             // NOTE: the number taken from operand must be signed,

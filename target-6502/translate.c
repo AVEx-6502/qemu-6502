@@ -147,6 +147,9 @@ enum opcode {
     iEOR_imm=0x49, iEOR_abs=0x4D, iEOR_zpg=0x45, iEOR_Xind=0x41, iEOR_indY=0x51, iEOR_zpgX=0x55, iEOR_absX=0x5D, iEOR_absY=0x59,
     iLDA_imm=0xA9, iLDA_abs=0xAD, iLDA_zpg=0xA5, iLDA_Xind=0xA1, iLDA_indY=0xB1, iLDA_zpgX=0xB5, iLDA_absX=0xBD, iLDA_absY=0xB9,
 
+
+    iSBC_imm=0xE9,
+
     iTXS = 0x9A,
     iTSX = 0xBA,
 
@@ -157,6 +160,9 @@ enum opcode {
 
     iJSR = 0x20,
     iRTS = 0x60,
+
+
+    iSEC = 0x38,
 };
 
 
@@ -434,12 +440,14 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
 
          // Immediate Subtract
-        case 0xE9: {
+        case iSBC_imm: {
             tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
+            tcg_gen_setcondi_tl(TCG_COND_NE, regTMP, regTMP, 0);
             tcg_gen_add_tl(regAC, regAC, regTMP);       // Add the carry
             tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr) ^ 0xFF);  // Add ~M
             tcg_gen_mov_tl(reg_last_res, regAC);        // Save result for Z, N and C flag computation
             tcg_gen_ext8u_tl(regAC, regAC);             // Truncate to 8 bits
+            //gen_helper_printnum(regAC);
             // TODO: V flag
             return NO_EXIT;
         }
@@ -475,17 +483,24 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         int mask;
         case 0xF0:  cond = TCG_COND_NE;     mask = 0x00FF;      goto br_gen;
         case 0xD0:  cond = TCG_COND_EQ;     mask = 0x00FF;      goto br_gen;
-        case 0x10:  cond = TCG_COND_EQ;     mask = 0x0080;      goto br_gen;
-        case 0x30:  cond = TCG_COND_NE;     mask = 0x0080;      goto br_gen;
+        case 0x10:  cond = TCG_COND_NE;     mask = 0x0080;      goto br_gen;
+        case 0x30:  cond = TCG_COND_EQ;     mask = 0x0080;      goto br_gen;
+        case 0x90:  cond = TCG_COND_NE;     mask = 0x0100;      goto br_gen;
+        case 0xB0:  cond = TCG_COND_EQ;     mask = 0x0100;      goto br_gen;
 
         br_gen: {
+            // NOTE: the number taken from operand must be signed,
+            //       because we can subtract from the PC...
+            int8_t br_target = get_from_code(paddr);
             int lbl_nobranch = gen_new_label();
             tcg_gen_andi_tl(regTMP, reg_last_res, mask);
             tcg_gen_brcondi_tl(cond, regTMP, 0, lbl_nobranch);
-            tcg_gen_addi_tl(cpu_pc, cpu_pc, get_from_code(paddr));
-            tcg_gen_ext16u_tl(cpu_pc, cpu_pc);
+            tcg_gen_movi_tl(cpu_pc, (*paddr+br_target)&0xFFFF);
+            tcg_gen_exit_tb(0);
 
             gen_set_label(lbl_nobranch);
+            tcg_gen_movi_tl(cpu_pc, *paddr);
+            tcg_gen_exit_tb(0);
             return EXIT_PC_UPDATED;
         }
 
@@ -508,7 +523,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
         // SEC
-        case 0x38:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
+        case iSEC:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
 
         // CLC
         case 0x18:  tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x00FF);    return NO_EXIT;

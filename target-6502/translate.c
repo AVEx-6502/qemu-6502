@@ -148,6 +148,9 @@ enum opcode {
     iLDA_imm=0xA9, iLDA_abs=0xAD, iLDA_zpg=0xA5, iLDA_Xind=0xA1, iLDA_indY=0xB1, iLDA_zpgX=0xB5, iLDA_absX=0xBD, iLDA_absY=0xB9,
     iORA_imm=0x09, iORA_abs=0x0D, iORA_zpg=0x05, iORA_Xind=0x01, iORA_indY=0x11, iORA_zpgX=0x15, iORA_absX=0x1D, iORA_absY=0x19,
 
+    iASL_A=0x0A,
+
+
     iJMP_abs = 0x4C, iJMP_ind = 0x6C,
 
 
@@ -170,6 +173,9 @@ enum opcode {
     iDEX = 0xCA, iDEY = 0x88, iDEC_abs = 0xCE, iDEC_zpg = 0xC6, iDEC_zpgX = 0xD6, iDEC_absX = 0xDE,
 
     iSEC = 0x38,
+    iCLC = 0x18,
+
+    iNOP = 0xEA,
 };
 
 
@@ -409,7 +415,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
 
          // Immediate Add
-        case 0x69: {
+        case iADC_imm: {
             tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
             tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));
@@ -537,15 +543,16 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_qemu_ld16u(cpu_pc, regSP, 0);
             tcg_gen_addi_tl(regSP, regSP, +1-0x100);
             tcg_gen_addi_tl(cpu_pc, cpu_pc, 1);
-            tcg_gen_ext16u_tl(cpu_pc, regSP);        // Truncate to 16 bits
+            tcg_gen_ext16u_tl(cpu_pc, cpu_pc);        // Truncate to 16 bits
             return EXIT_PC_UPDATED;
         }
 
-        // SEC
-        case iSEC:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
+        /*
+         * Flags direct manipulations...
+         */
 
-        // CLC
-        case 0x18:  tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x00FF);    return NO_EXIT;
+        case iSEC:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
+        case iCLC:  tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x00FF);    return NO_EXIT;
 
 
         /*
@@ -587,6 +594,19 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_temp_free(reg_value);
             return NO_EXIT;
         }
+
+        /*
+         * Shifts and rotates...
+         */
+        void asl_reg_gen(void) {    // Nested functions ftw...
+            tcg_gen_shli_tl(used_reg, used_reg, 1);
+            tcg_gen_mov_tl(reg_last_res, used_reg);    // Save result for Z, N and C flag computation
+            tcg_gen_ext8u_tl(used_reg, used_reg);         // Truncate to 8 bits
+        }
+
+        case iASL_A:    used_reg = regAC;   asl_reg_gen();  return NO_EXIT;
+
+
 
 
         /*
@@ -645,9 +665,22 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
 
-
-        // NOP!
-        case 0xEA:  return NO_EXIT;
+        /*
+         * Misc
+         */
+        case iPHA: {
+            tcg_gen_addi_tl(regSP, regSP, 0x100);
+            tcg_gen_qemu_st8(regTMP, regAC, 0);
+            tcg_gen_addi_tl(regSP, regSP, -1-0x100);
+            return NO_EXIT;
+        }
+        case iPLA: {
+            tcg_gen_addi_tl(regSP, regSP, +1+0x100);
+            tcg_gen_qemu_ld8u(regAC, regSP, 0);
+            tcg_gen_addi_tl(regSP, regSP, -0x100);
+            return NO_EXIT;
+        }
+        case iNOP:  return NO_EXIT;
 
 
         // These are phony instructions to work with the terminal...

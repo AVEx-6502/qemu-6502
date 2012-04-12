@@ -149,7 +149,7 @@ enum opcode {
     iORA_imm=0x09, iORA_abs=0x0D, iORA_zpg=0x05, iORA_Xind=0x01, iORA_indY=0x11, iORA_zpgX=0x15, iORA_absX=0x1D, iORA_absY=0x19,
 
     iASL_A=0x0A, iASL_zpg=0x06, iASL_zpgX=0x16, iASL_abs=0x0E, iASL_absX=0x1E,
-
+    iLSR_A=0x4A, iLSR_zpg=0x46, iLSR_zpgX=0x56, iLSR_abs=0x4E, iLSR_absX=0x5E,
 
     iJMP_abs = 0x4C, iJMP_ind = 0x6C,
 
@@ -648,6 +648,33 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
 
+        case iLSR_A: {
+            tcg_gen_andi_tl(reg_last_res, regAC, 0x01);  // Save first bit to carry
+            tcg_gen_shli_tl(reg_last_res, reg_last_res, 8);
+            tcg_gen_shri_tl(regAC, regAC, 1);           // Shift it
+            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);     // Save result for Z, N and C flag computation
+            return NO_EXIT;
+        }
+
+        case iLSR_zpg:      addr_func = gen_zero_page_mode_addr;    goto lsr_mem_gen;
+        case iLSR_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto lsr_mem_gen;
+        case iLSR_abs:      addr_func = gen_abs_mode_addr;          goto lsr_mem_gen;
+        case iLSR_absX:     addr_func = gen_Xabs_mode_addr;         goto lsr_mem_gen;
+
+        lsr_mem_gen: {
+            TCGv reg_value = tcg_temp_new();
+            *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
+            tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
+            tcg_gen_andi_tl(reg_last_res, reg_value, 0x01);  // Save first bit to carry
+            tcg_gen_shli_tl(reg_last_res, reg_last_res, 8);
+            tcg_gen_shri_tl(reg_value, reg_value, 1);   // Shift it
+            tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);     // Save result for Z, N and C flag computation
+            tcg_gen_qemu_st8(reg_value, regTMP, 0);     // Store back the value
+            tcg_temp_free(reg_value);
+            return NO_EXIT;
+        }
+
+
 
         /*
          *  ANDs, ORs and XORs
@@ -757,6 +784,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_addi_tl(regSP, regSP, 0x100+1);
             tcg_gen_qemu_ld8u(regAC, regSP, 0);
             tcg_gen_subi_tl(regSP, regSP, 0x100);
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
+            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);
             return NO_EXIT;
         }
         case iNOP:  return NO_EXIT;

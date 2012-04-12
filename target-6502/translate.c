@@ -73,7 +73,7 @@ typedef enum {
 
 // The following are the register variable as taken by TCG functions
 static TCGv_ptr cpu_env;
-static TCGv cpu_pc;
+static TCGv regPC;
 
 // 6502 registers...
 static TCGv regAC;
@@ -105,7 +105,7 @@ static void cpu6502_translate_init(void)
     regSR = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sr), "SR");
     regSP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sp), "SP");
 
-    cpu_pc = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, pc), "pc");
+    regPC = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, pc), "pc");
 
     regTMP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, tmp), "TMP");
     reg_last_res = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_res), "LAST_RES");
@@ -130,7 +130,7 @@ static void gen_excp_1(int exception, int error_code)
 
 static ExitStatus gen_excp(DisasContext *ctx, int exception, int error_code)
 {
-    tcg_gen_movi_i32(cpu_pc, ctx->pc);
+    tcg_gen_movi_i32(regPC, ctx->pc);
     gen_excp_1(exception, error_code);
     return EXIT_NORETURN;
 }
@@ -147,6 +147,9 @@ enum opcode {
     iEOR_imm=0x49, iEOR_abs=0x4D, iEOR_zpg=0x45, iEOR_Xind=0x41, iEOR_indY=0x51, iEOR_zpgX=0x55, iEOR_absX=0x5D, iEOR_absY=0x59,
     iLDA_imm=0xA9, iLDA_abs=0xAD, iLDA_zpg=0xA5, iLDA_Xind=0xA1, iLDA_indY=0xB1, iLDA_zpgX=0xB5, iLDA_absX=0xBD, iLDA_absY=0xB9,
     iORA_imm=0x09, iORA_abs=0x0D, iORA_zpg=0x05, iORA_Xind=0x01, iORA_indY=0x11, iORA_zpgX=0x15, iORA_absX=0x1D, iORA_absY=0x19,
+
+    iASL_A=0x0A, iASL_zpg=0x06, iASL_zpgX=0x16, iASL_abs=0x0E, iASL_absX=0x1E,
+
 
     iJMP_abs = 0x4C, iJMP_ind = 0x6C,
 
@@ -172,6 +175,9 @@ enum opcode {
     iDEX = 0xCA, iDEY = 0x88, iDEC_abs = 0xCE, iDEC_zpg = 0xC6, iDEC_zpgX = 0xD6, iDEC_absX = 0xDE,
 
     iSEC = 0x38,
+    iCLC = 0x18,
+
+    iNOP = 0xEA,
 };
 
 
@@ -410,8 +416,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          *  Adds
          */
 
-        // Immediate Add
-        case 0x69: {
+         // Immediate Add
+        case iADC_imm: {
             tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
             tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr));
@@ -484,11 +490,11 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         /*
          *  Jumps
          */
-        case iJMP_abs:  tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr));  return EXIT_PC_UPDATED;
+        case iJMP_abs:  tcg_gen_movi_tl(regPC, getw_from_code(paddr));  return EXIT_PC_UPDATED;
         case iJMP_ind: {
             gen_abs_mode_addr(regTMP, *paddr);
             tcg_gen_qemu_ld16u(regTMP, regTMP, 0);
-            tcg_gen_mov_tl(cpu_pc, regTMP);
+            tcg_gen_mov_tl(regPC, regTMP);
             return EXIT_PC_UPDATED;
         }
 
@@ -512,11 +518,11 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             int lbl_nobranch = gen_new_label();
             tcg_gen_andi_tl(regTMP, reg_last_res, mask);
             tcg_gen_brcondi_tl(cond, regTMP, 0, lbl_nobranch);
-            tcg_gen_movi_tl(cpu_pc, (*paddr + br_target) & 0xFFFF);
+            tcg_gen_movi_tl(regPC, (*paddr + br_target) & 0xFFFF);
             tcg_gen_exit_tb(0);
 
             gen_set_label(lbl_nobranch);
-            tcg_gen_movi_tl(cpu_pc, *paddr);
+            tcg_gen_movi_tl(regPC, *paddr);
             tcg_gen_exit_tb(0);
             return EXIT_PC_UPDATED;
         }
@@ -526,27 +532,52 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          * Calls and rets
          */
         case iJSR: {
-            tcg_gen_movi_tl(regTMP, *paddr+1);  // The stack will receive the PC of the next instruction minus one.
-            tcg_gen_addi_tl(regSP, regSP, -1+0x100);        // First, decrement SP, then write16, then decrement again.
+            tcg_gen_addi_tl(regSP, regSP, 0x100);
+
+            /*  // This is old code, removed because writing a 16 bit word was throwing an exception...
+                //may be possible to disable this, however...
+            tcg_gen_addi_tl(regSP, regSP, 0x100-1);        // First, decrement SP, then write16, then decrement again.
             tcg_gen_qemu_st16(regTMP, regSP, 0);            // This is because the stack of the 6502 is not word
-            tcg_gen_addi_tl(regSP, regSP, -1-0x100);        // aligned, AND is decremented after write.
-            tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr)); // Jump to subroutine
+            tcg_gen_subi_tl(regSP, regSP, 0x100+1);        // aligned, AND is decremented after write.
+            */
+
+            tcg_gen_movi_tl(regTMP, (*paddr+1)>>8);
+            tcg_gen_qemu_st8(regTMP, regSP, 0);
+            tcg_gen_subi_tl(regSP, regSP, 1);
+            tcg_gen_movi_tl(regTMP, (*paddr+1)&0xFF);
+            tcg_gen_qemu_st8(regTMP, regSP, 0);
+
+            tcg_gen_subi_tl(regSP, regSP, 0x100+1);
+
+            tcg_gen_movi_tl(regPC, getw_from_code(paddr)); // Jump to subroutine
             return EXIT_PC_UPDATED;
         }
         case iRTS: {
-            tcg_gen_addi_tl(regSP, regSP, +1+0x100);
-            tcg_gen_qemu_ld16u(cpu_pc, regSP, 0);
-            tcg_gen_addi_tl(regSP, regSP, +1-0x100);
-            tcg_gen_addi_tl(cpu_pc, cpu_pc, 1);
-            tcg_gen_ext16u_tl(cpu_pc, regSP);        // Truncate to 16 bits
+            /*  // Same as above!...
+            tcg_gen_addi_tl(regSP, regSP, 0x100+1);
+            tcg_gen_qemu_ld16u(regPC, regSP, 0);
+            tcg_gen_subi_tl(regSP, regSP, 0x100-1);
+            */
+
+            tcg_gen_addi_tl(regSP, regSP, 0x100+1);
+            tcg_gen_qemu_ld8u(regPC, regSP, 0);     // Low byte
+            tcg_gen_addi_tl(regSP, regSP, 1);
+            tcg_gen_qemu_ld8u(regTMP, regSP, 0);    // High byte
+            tcg_gen_shli_tl(regTMP, regTMP, 8);
+            tcg_gen_or_tl(regPC, regPC, regTMP);
+            tcg_gen_subi_tl(regSP, regSP, 0x100);
+
+            tcg_gen_addi_tl(regPC, regPC, 1);
+            tcg_gen_ext16u_tl(regPC, regPC);        // Truncate to 16 bits
             return EXIT_PC_UPDATED;
         }
 
-        // SEC
-        case iSEC:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
+        /*
+         * Flags direct manipulations...
+         */
 
-        // CLC
-        case 0x18:  tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x00FF);    return NO_EXIT;
+        case iSEC:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
+        case iCLC:  tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x00FF);    return NO_EXIT;
 
 
         /*
@@ -588,6 +619,34 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_temp_free(reg_value);
             return NO_EXIT;
         }
+
+        /*
+         * Shifts and rotates...
+         */
+
+        case iASL_A: {
+            tcg_gen_shli_tl(regAC, regAC, 1);
+            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z, N and C flag computation
+            tcg_gen_ext8u_tl(regAC, regAC);         // Truncate to 8 bits
+            return NO_EXIT;
+        }
+
+        case iASL_zpg:      addr_func = gen_zero_page_mode_addr;    goto asl_mem_gen;
+        case iASL_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto asl_mem_gen;
+        case iASL_abs:      addr_func = gen_abs_mode_addr;          goto asl_mem_gen;
+        case iASL_absX:     addr_func = gen_Xabs_mode_addr;         goto asl_mem_gen;
+
+        asl_mem_gen: {
+            TCGv reg_value = tcg_temp_new();
+            *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
+            tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
+            tcg_gen_shli_tl(reg_value, reg_value, 1);
+            tcg_gen_mov_tl(reg_last_res, reg_value);    // Save result for Z, N and C flag computation
+            tcg_gen_qemu_st8(reg_value, regTMP, 0);     // Store back the value
+            tcg_temp_free(reg_value);
+            return NO_EXIT;
+        }
+
 
 
         /*
@@ -683,16 +742,29 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
 
-        // NOP!
-        case 0xEA:  return NO_EXIT;
+
+
+        /*
+         * Misc
+         */
+        case iPHA: {
+            tcg_gen_addi_tl(regSP, regSP, 0x100);
+            tcg_gen_qemu_st8(regAC, regSP, 0);
+            tcg_gen_subi_tl(regSP, regSP, 0x100+1);
+            return NO_EXIT;
+        }
+        case iPLA: {
+            tcg_gen_addi_tl(regSP, regSP, 0x100+1);
+            tcg_gen_qemu_ld8u(regAC, regSP, 0);
+            tcg_gen_subi_tl(regSP, regSP, 0x100);
+            return NO_EXIT;
+        }
+        case iNOP:  return NO_EXIT;
 
 
 
 
         // These are phony instructions to work with the terminal...
-        case 0xBF:
-            gen_helper_printnum(reg_last_res);
-            return NO_EXIT;
         case 0xCF:  // Read number from stdin
             gen_helper_getnum(regAC);
             return NO_EXIT;
@@ -810,7 +882,7 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     case EXIT_NORETURN:
         break;
     case EXIT_PC_STALE:
-        tcg_gen_movi_i32(cpu_pc, ctx.pc);
+        tcg_gen_movi_i32(regPC, ctx.pc);
         /* FALLTHRU */
     case EXIT_PC_UPDATED:
         if (env->singlestep_enabled) {

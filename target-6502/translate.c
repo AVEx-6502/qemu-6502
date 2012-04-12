@@ -280,7 +280,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         load_imm_gen: {
             tcg_gen_movi_tl(used_reg, get_from_code(paddr));
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0xFF00);    // Save result for Z and N flag computation
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z, N and C flag computation
             tcg_gen_or_tl(reg_last_res, reg_last_res, used_reg);
             return NO_EXIT;
         }
@@ -308,7 +308,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         load_gen: {
             *paddr = (*addr_func)(used_reg, *paddr);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0xFF00);    // Save result for Z and N flag computation
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
             tcg_gen_or_tl(reg_last_res, reg_last_res, used_reg);
             return NO_EXIT;
         }
@@ -358,7 +358,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         reg_transfer_gen: {
             tcg_gen_mov_tl(dst_reg, src_reg);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0xFF00);    // Save result for Z and N flag computation
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
             tcg_gen_or_tl(reg_last_res, reg_last_res, dst_reg);
             return NO_EXIT;
         }
@@ -406,14 +406,71 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
 
+        /*
+         *  Subtracts
+         *   - NOTE: A - M - ~C == A + ~M + C, because Carry is Borrow in Subtract
+         */
+
+         // Immediate Subtract
+        case 0xE9: {
+            tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
+            tcg_gen_add_tl(regAC, regAC, regTMP);       // Add the carry
+            tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr) ^ 0xFF);  // Add ~M
+            tcg_gen_mov_tl(reg_last_res, regAC);        // Save result for Z, N and C flag computation
+            tcg_gen_ext8u_tl(regAC, regAC);             // Truncate to 8 bits
+            // TODO: V flag
+            return NO_EXIT;
+        }
+
+        case 0xED:  addr_func = gen_abs_mode;           goto sub_gen;
+        case 0xE5:  addr_func = gen_zero_page_mode;     goto sub_gen;
+        case 0xE1:  addr_func = gen_indirect_X_mode;    goto sub_gen;
+        case 0xF1:  addr_func = gen_Y_indirect_mode;    goto sub_gen;
+        case 0xF5:  addr_func = gen_zero_page_X_mode;   goto sub_gen;
+        case 0xFD:  addr_func = gen_Xabs_mode;          goto sub_gen;
+        case 0xF9:  addr_func = gen_Yabs_mode;          goto sub_gen;
+
+        sub_gen: {
+            tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
+            tcg_gen_add_tl(regAC, regAC, regTMP);       // Add the carry
+            *paddr = (*addr_func)(regTMP, *paddr);      // Get the value to add
+            tcg_gen_xori_tl(regTMP, regTMP, 0x00FF);    // M = ~M, we only want the first byte
+            tcg_gen_add_tl(regAC, regAC, regTMP);       // Add it
+            tcg_gen_mov_tl(reg_last_res, regAC);        // Save result for Z, N and C flag computation
+            tcg_gen_ext8u_tl(regAC, regAC);             // Truncate to 8 bits
+
+            // TODO: V flag
+            return NO_EXIT;
+        }
+
+
+
 
         // Jumps and branches
         case 0x4C:  tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr));  return EXIT_PC_UPDATED;
 
+        int cond;
+        int mask;
+        case 0xF0:  cond = TCG_COND_NE;     mask = 0x00FF;      goto br_gen;
+        case 0xD0:  cond = TCG_COND_EQ;     mask = 0x00FF;      goto br_gen;
+        case 0x10:  cond = TCG_COND_EQ;     mask = 0x0080;      goto br_gen;
+        case 0x30:  cond = TCG_COND_NE;     mask = 0x0080;      goto br_gen;
+
+        br_gen: {
+            int lbl_nobranch = gen_new_label();
+            tcg_gen_andi_tl(regTMP, reg_last_res, mask);
+            tcg_gen_brcondi_tl(cond, regTMP, 0, lbl_nobranch);
+            tcg_gen_addi_tl(cpu_pc, cpu_pc, get_from_code(paddr));
+            tcg_gen_ext16u_tl(cpu_pc, cpu_pc);
+
+            gen_set_label(lbl_nobranch);
+            return EXIT_PC_UPDATED;
+        }
+
         // Calls and rets
         case iJSR: {
             tcg_gen_movi_tl(regTMP, *paddr+1);  // The stack will receive the PC of the next instruction minus one.
-            tcg_gen_addi_tl(regSP, regSP, -1+0x100);        // First, decrement SP, then write, then decrement again.
+            tcg_gen_addi_tl(regSP, regSP, -1+0x100);        // First, decrement SP, then write16, then decrement again.
             tcg_gen_qemu_st16(regTMP, regSP, 0);            // This is because the stack of the 6502 is not word
             tcg_gen_addi_tl(regSP, regSP, -1-0x100);        // aligned, AND is decremented after write.
             tcg_gen_movi_tl(cpu_pc, getw_from_code(paddr)); // Jump to subroutine

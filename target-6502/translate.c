@@ -150,6 +150,8 @@ enum opcode {
 
     iJMP_abs = 0x4C, iJMP_ind = 0x6C,
 
+    iCPX_imm = 0xE0, iCPX_abs = 0xEC, iCPX_zpg = 0xE4,
+    iCPY_imm = 0xC0, iCPY_abs = 0xCC, iCPY_zpg = 0xC4,
 
     iSBC_imm=0xE9,
 
@@ -408,7 +410,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          *  Adds
          */
 
-         // Immediate Add
+        // Immediate Add
         case 0x69: {
             tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
             tcg_gen_add_tl(regAC, regAC, regTMP);   // Add the carry
@@ -446,10 +448,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          *   - NOTE: A - M - ~C == A + ~M + C, because Carry is Borrow in Subtract
          */
 
-         // Immediate Subtract
+        // Immediate Subtract
         case iSBC_imm: {
             tcg_gen_shri_tl(regTMP, reg_last_res, 8);   // Put carry flag in TMP reg
-            tcg_gen_setcondi_tl(TCG_COND_NE, regTMP, regTMP, 0);
             tcg_gen_add_tl(regAC, regAC, regTMP);       // Add the carry
             tcg_gen_addi_tl(regAC, regAC, get_from_code(paddr) ^ 0xFF);  // Add ~M
             tcg_gen_mov_tl(reg_last_res, regAC);        // Save result for Z, N and C flag computation
@@ -645,16 +646,57 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
 
+        /*
+         * Compares
+         */
+
+        // Immediate
+        case iCMP_imm:  used_reg = regAC;   goto cmp_gen_imm;
+        case iCPX_imm:  used_reg = regX;    goto cmp_gen_imm;
+        case iCPY_imm:  used_reg = regY;    goto cmp_gen_imm;
+
+        cmp_gen_imm: {
+            tcg_gen_addi_tl(regTMP, used_reg, (get_from_code(paddr) ^ 0xFF) + 1);  // Add ~M + 1
+            tcg_gen_mov_tl(reg_last_res, regTMP);        // Save result for Z, N and C flag computation
+            return NO_EXIT;
+        }
+
+        // Other addressing modes
+        case iCMP_abs:   used_reg = regAC;    addr_func = gen_abs_mode;           goto cmp_gen;
+        case iCPX_abs:   used_reg = regX;     addr_func = gen_abs_mode;           goto cmp_gen;
+        case iCPY_abs:   used_reg = regY;     addr_func = gen_abs_mode;           goto cmp_gen;
+        case iCMP_zpg:   used_reg = regAC;    addr_func = gen_zero_page_mode;     goto cmp_gen;
+        case iCPX_zpg:   used_reg = regX;     addr_func = gen_zero_page_mode;     goto cmp_gen;
+        case iCPY_zpg:   used_reg = regY;     addr_func = gen_zero_page_mode;     goto cmp_gen;
+        case iCMP_Xind:  used_reg = regAC;    addr_func = gen_indirect_X_mode;    goto cmp_gen;
+        case iCMP_indY:  used_reg = regAC;    addr_func = gen_Y_indirect_mode;    goto cmp_gen;
+        case iCMP_zpgX:  used_reg = regAC;    addr_func = gen_zero_page_X_mode;   goto cmp_gen;
+        case iCMP_absX:  used_reg = regAC;    addr_func = gen_Xabs_mode;          goto cmp_gen;
+        case iCMP_absY:  used_reg = regAC;    addr_func = gen_Yabs_mode;          goto cmp_gen;
+
+        cmp_gen: {
+            *paddr = (*addr_func)(regTMP, *paddr);      // Get the value to add
+            tcg_gen_sub_tl(regTMP, used_reg, regTMP);
+            tcg_gen_xori_tl(regTMP, regTMP, 0x0100);    // Calculate carry
+            tcg_gen_mov_tl(reg_last_res, regTMP);       // Save result for Z, N and C flag computation
+            return NO_EXIT;
+        }
+
 
         // NOP!
         case 0xEA:  return NO_EXIT;
 
 
+
+
         // These are phony instructions to work with the terminal...
+        case 0xBF:
+            gen_helper_printnum(reg_last_res);
+            return NO_EXIT;
         case 0xCF:  // Read number from stdin
             gen_helper_getnum(regAC);
             return NO_EXIT;
-        case 0xDF:  // Read number from stdin
+        case 0xDF:  // Print number to stdout
             gen_helper_printnum(regAC);
             return NO_EXIT;
         case 0xEF:  // Read char from stdin

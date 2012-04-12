@@ -559,9 +559,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             */
 
             tcg_gen_addi_tl(regSP, regSP, 0x100+1);
-            tcg_gen_qemu_ld8u(regPC, regSP, 0);
+            tcg_gen_qemu_ld8u(regPC, regSP, 0);     // Low byte
             tcg_gen_addi_tl(regSP, regSP, 1);
-            tcg_gen_qemu_ld8u(regTMP, regSP, 0);
+            tcg_gen_qemu_ld8u(regTMP, regSP, 0);    // High byte
             tcg_gen_shli_tl(regTMP, regTMP, 8);
             tcg_gen_or_tl(regPC, regPC, regTMP);
             tcg_gen_subi_tl(regSP, regSP, 0x100);
@@ -694,7 +694,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
         case iPHA: {
             tcg_gen_addi_tl(regSP, regSP, 0x100);
-            tcg_gen_qemu_st8(regTMP, regAC, 0);
+            tcg_gen_qemu_st8(regAC, regSP, 0);
             tcg_gen_subi_tl(regSP, regSP, 0x100+1);
             return NO_EXIT;
         }

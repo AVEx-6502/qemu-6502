@@ -21,18 +21,7 @@
 #define __CPU_6502_H__
 
 
-enum opcode {
-    iTXS = 0x9A,
-    iTSX = 0xBA,
 
-    iPHA = 0x48,
-    iPHP = 0x08,
-    iPLA = 0x68,
-    iPLP = 0x28,
-
-    iJSR = 0x20,
-    iRTS = 0x60,
-};
 
 
 #include "config.h"

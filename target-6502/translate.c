@@ -150,6 +150,8 @@ enum opcode {
 
     iASL_A=0x0A, iASL_zpg=0x06, iASL_zpgX=0x16, iASL_abs=0x0E, iASL_absX=0x1E,
     iLSR_A=0x4A, iLSR_zpg=0x46, iLSR_zpgX=0x56, iLSR_abs=0x4E, iLSR_absX=0x5E,
+    iROL_A=0x2A, iROL_zpg=0x26, iROL_zpgX=0x36, iROL_abs=0x2E, iROL_absX=0x3E,
+    iROR_A=0x6A, iROR_zpg=0x66, iROR_zpgX=0x76, iROR_abs=0x6E, iROR_absX=0x7E,
 
     iJMP_abs = 0x4C, iJMP_ind = 0x6C,
 
@@ -633,12 +635,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_ext8u_tl(regAC, regAC);         // Truncate to 8 bits
             return NO_EXIT;
         }
-
         case iASL_zpg:      addr_func = gen_zero_page_mode_addr;    goto asl_mem_gen;
         case iASL_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto asl_mem_gen;
         case iASL_abs:      addr_func = gen_abs_mode_addr;          goto asl_mem_gen;
         case iASL_absX:     addr_func = gen_Xabs_mode_addr;         goto asl_mem_gen;
-
         asl_mem_gen: {
             *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
             tcg_gen_qemu_ld8u(reg_last_res, regTMP, 0);
@@ -655,12 +655,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);     // Save result for Z, N and C flag computation
             return NO_EXIT;
         }
-
         case iLSR_zpg:      addr_func = gen_zero_page_mode_addr;    goto lsr_mem_gen;
         case iLSR_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto lsr_mem_gen;
         case iLSR_abs:      addr_func = gen_abs_mode_addr;          goto lsr_mem_gen;
         case iLSR_absX:     addr_func = gen_Xabs_mode_addr;         goto lsr_mem_gen;
-
         lsr_mem_gen: {
             TCGv reg_value = tcg_temp_new();
             *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
@@ -673,6 +671,32 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_temp_free(reg_value);
             return NO_EXIT;
         }
+
+
+#if 0
+        case iROL_A: {
+            tcg_gen_shli_tl(regAC, regAC, 1);
+            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);
+            tcg_gen_add_tl(regAC, regAC, reg_last_res);
+            tcg_gen_mov_tl(reg_last_res, regAC);    // Save result for Z, N and C flag computation
+            tcg_gen_ext8u_tl(regAC, regAC);         // Truncate to 8 bits
+            return NO_EXIT;
+        }
+        case iROL_zpg:      addr_func = gen_zero_page_mode_addr;    goto rol_mem_gen;
+        case iROL_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto rol_mem_gen;
+        case iROL_abs:      addr_func = gen_abs_mode_addr;          goto rol_mem_gen;
+        case iROL_absX:     addr_func = gen_Xabs_mode_addr;         goto rol_mem_gen;
+        rol_mem_gen: {
+            *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
+            tcg_gen_qemu_ld8u(regTMP, regTMP, 0);
+            tcg_gen_shli_tl(regTMP, regTMP, 1);
+            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);
+            tcg_gen_add_tl(reg_last_res, reg_last_res, regTMP);
+            tcg_gen_qemu_st8(reg_last_res, regTMP, 0);     // Store back the value
+            return NO_EXIT;
+        }
+#endif
+
 
 
 

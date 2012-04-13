@@ -204,13 +204,15 @@ static inline uint32_t gen_abs_mode_addr(TCGv reg, uint32_t code_addr) {    // c
 }
 static inline uint32_t gen_Xabs_mode_addr(TCGv reg, uint32_t code_addr) {   // X+code_addr
     uint32_t base = getw_from_code(&code_addr);
-    tcg_gen_addi_tl(reg, regX, base);     // Add X
+    tcg_gen_ext8s_tl(reg, regX);
+    tcg_gen_addi_tl(reg, reg, base);     // Add X
     tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
     return code_addr;
 }
 static inline uint32_t gen_Yabs_mode_addr(TCGv reg, uint32_t code_addr) {   // Y+code_addr
     uint32_t base = getw_from_code(&code_addr);
-    tcg_gen_addi_tl(reg, regY, base);     // Add Y
+    tcg_gen_ext8s_tl(reg, regY);
+    tcg_gen_addi_tl(reg, reg, base);     // Add Y
     tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
     return code_addr;
 }

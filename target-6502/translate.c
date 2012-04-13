@@ -683,11 +683,43 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_shli_tl(reg_value, reg_value, 1);
             tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);
             tcg_gen_or_tl(reg_last_res, reg_value, reg_last_res);   // Save result for Z, N and C flag computation
-            tcg_gen_ext8u_tl(reg_value, reg_last_res);         // Truncate to 8 bits
-            tcg_gen_qemu_st8(reg_value, regTMP, 0);     // Store back the value
+            tcg_gen_qemu_st8(reg_last_res, regTMP, 0);     // Store back the value
             tcg_temp_free(reg_value);
             return NO_EXIT;
         }
+
+
+
+
+        case iROR_A: {
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save previous carry
+            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);       // Save result for Z, N and C flag computation
+            tcg_gen_andi_tl(regAC, regAC, 0x01);                    // Save first bit in AC
+            tcg_gen_shri_tl(reg_last_res, reg_last_res, 1);         // Shift it
+            tcg_gen_shli_tl(regAC, regAC, 8);                       // Put saved bit in carry position
+            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);       // Save new carry
+            tcg_gen_ext8u_tl(regAC, reg_last_res);                  // Truncate to 8 bits
+            return NO_EXIT;
+        }
+        case iROR_zpg:      addr_func = gen_zero_page_mode_addr;    goto ror_mem_gen;
+        case iROR_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto ror_mem_gen;
+        case iROR_abs:      addr_func = gen_abs_mode_addr;          goto ror_mem_gen;
+        case iROR_absX:     addr_func = gen_Xabs_mode_addr;         goto ror_mem_gen;
+        ror_mem_gen: {
+            TCGv reg_value = tcg_temp_new();
+            *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
+            tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
+            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save previous carry
+            tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);   // Save result for Z, N and C flag computation
+            tcg_gen_andi_tl(reg_value, reg_value, 0x01);            // Save first bit in reg_value
+            tcg_gen_shri_tl(reg_last_res, reg_last_res, 1);         // Shift it
+            tcg_gen_shli_tl(reg_value, reg_value, 8);               // Put saved bit in carry position
+            tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);   // Save new carry
+            tcg_gen_qemu_st8(reg_last_res, regTMP, 0);     // Store back the value
+            tcg_temp_free(reg_value);
+            return NO_EXIT;
+        }
+
 
 
 

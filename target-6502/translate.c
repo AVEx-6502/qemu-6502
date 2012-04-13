@@ -196,12 +196,7 @@ static inline uint16_t getw_from_code(uint32_t *code_addr)
     return lduw_code(*code_addr - 2);
 }
 
-/* Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
- * In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
- * In higher elvish (x86-like syntax), this means [[X+[ 0x?? ]]].
- * The function uses the same register for all intermediate value...
- *   NOTE: I think this has a bug... NOT TESTED!...
- */
+
 static inline uint32_t gen_abs_mode_addr(TCGv reg, uint32_t code_addr) {    // code_addr
     uint32_t base = getw_from_code(&code_addr);
     tcg_gen_movi_tl(reg, base);
@@ -219,23 +214,6 @@ static inline uint32_t gen_Yabs_mode_addr(TCGv reg, uint32_t code_addr) {   // Y
     tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
     return code_addr;
 }
-
-static inline uint32_t gen_abs_mode(TCGv reg, uint32_t code_addr) {     // [code_addr]
-    code_addr = gen_abs_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld8u(reg, reg, 0);
-    return code_addr;
-}
-static inline uint32_t gen_Xabs_mode(TCGv reg, uint32_t code_addr) {    // [X+code_addr]
-    code_addr = gen_Xabs_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld8u(reg, reg, 0);
-    return code_addr;
-}
-static inline uint32_t gen_Yabs_mode(TCGv reg, uint32_t code_addr) {    // [Y+code_addr]
-    code_addr = gen_Yabs_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld8u(reg, reg, 0);
-    return code_addr;
-}
-
 static inline uint32_t gen_zero_page_mode_addr(TCGv reg, uint32_t code_addr) {  // code_addr (only 1 byte)
     uint32_t base = get_from_code(&code_addr);
     tcg_gen_movi_tl(reg, base);
@@ -253,7 +231,42 @@ static inline uint32_t gen_zero_page_Y_mode_addr(TCGv reg, uint32_t code_addr) {
     tcg_gen_ext8u_tl(reg, reg);   // Only lowest byte matters
     return code_addr;
 }
+/* Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
+ * In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
+ * In higher elvish (x86-like syntax), this means sth like [[X+[ 0x?? ]]].
+ * The function uses the same register for all intermediate values...
+ */
+static inline uint32_t gen_indirect_X_addr(TCGv reg, uint32_t code_addr) {   // [X+code_addr] (2 bytes)
+    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
+    code_addr = gen_zero_page_X_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld16u(reg, reg, 0);
+    return code_addr;
+}
+static uint32_t gen_Y_indirect_addr(TCGv reg, uint32_t code_addr) {  // [code_addr]+Y (2 bytes)
+    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
+    code_addr = gen_zero_page_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld16u(reg, reg, 0);
+    tcg_gen_add_tl(reg, reg, regY);     // Add Y
+    tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
+    return code_addr;
+}
 
+
+static inline uint32_t gen_abs_mode(TCGv reg, uint32_t code_addr) {     // [code_addr]
+    code_addr = gen_abs_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
+static inline uint32_t gen_Xabs_mode(TCGv reg, uint32_t code_addr) {    // [X+code_addr]
+    code_addr = gen_Xabs_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
+static inline uint32_t gen_Yabs_mode(TCGv reg, uint32_t code_addr) {    // [Y+code_addr]
+    code_addr = gen_Yabs_mode_addr(reg, code_addr);
+    tcg_gen_qemu_ld8u(reg, reg, 0);
+    return code_addr;
+}
 static inline uint32_t gen_zero_page_mode(TCGv reg, uint32_t code_addr) {  // [code_addr] (only 1 byte)
     code_addr = gen_zero_page_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld8u(reg, reg, 0);
@@ -269,25 +282,9 @@ static inline uint32_t gen_zero_page_Y_mode(TCGv reg, uint32_t code_addr) {    /
     tcg_gen_qemu_ld8u(reg, reg, 0);
     return code_addr;
 }
-
-static inline uint32_t gen_indirect_X_addr(TCGv reg, uint32_t code_addr) {   // [X+code_addr] (2 bytes)
-    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
-    code_addr = gen_zero_page_X_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld16u(reg, reg, 0);
-    return code_addr;
-}
 static inline uint32_t gen_indirect_X_mode(TCGv reg, uint32_t code_addr) {   // [[X+code_addr]]
     code_addr = gen_indirect_X_addr(reg, code_addr);
     tcg_gen_qemu_ld8u(reg, reg, 0);
-    return code_addr;
-}
-
-static uint32_t gen_Y_indirect_addr(TCGv reg, uint32_t code_addr) {  // [code_addr]+Y (2 bytes)
-    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
-    code_addr = gen_zero_page_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld16u(reg, reg, 0);
-    tcg_gen_add_tl(reg, reg, regY);     // Add Y
-    tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
     return code_addr;
 }
 static uint32_t gen_Y_indirect_mode(TCGv reg, uint32_t code_addr) {  // [[code_addr]+Y]
@@ -295,6 +292,10 @@ static uint32_t gen_Y_indirect_mode(TCGv reg, uint32_t code_addr) {  // [[code_a
     tcg_gen_qemu_ld8u(reg, reg, 0);
     return code_addr;
 }
+
+
+
+
 
 
 static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
@@ -637,13 +638,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iASL_absX:     addr_func = gen_Xabs_mode_addr;         goto asl_mem_gen;
 
         asl_mem_gen: {
-            TCGv reg_value = tcg_temp_new();
             *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
-            tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
-            tcg_gen_shli_tl(reg_value, reg_value, 1);
-            tcg_gen_mov_tl(reg_last_res, reg_value);    // Save result for Z, N and C flag computation
-            tcg_gen_qemu_st8(reg_value, regTMP, 0);     // Store back the value
-            tcg_temp_free(reg_value);
+            tcg_gen_qemu_ld8u(reg_last_res, regTMP, 0);
+            tcg_gen_shli_tl(reg_last_res, reg_last_res, 1);
+            tcg_gen_qemu_st8(reg_last_res, regTMP, 0);     // Store back the value
             return NO_EXIT;
         }
 

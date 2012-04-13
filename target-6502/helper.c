@@ -61,13 +61,20 @@ void cpu_dump_state (CPUState *env, FILE *f, fprintf_function cpu_fprintf,
     cpu_fprintf(f, "     PC  " TARGET_FMT_lx "      PS  %02x\n",
                 env->pc, env->ps);
 
-    cpu_fprintf(f, "     AC  " TARGET_FMT_lx "      X  " TARGET_FMT_lx "\n",
+    cpu_fprintf(f, "     AC  " TARGET_FMT_lx "      X   " TARGET_FMT_lx "\n",
                 env->ac, env->x);
 
-    cpu_fprintf(f, "     Y  " TARGET_FMT_lx "      SR  " TARGET_FMT_lx "\n",
+    cpu_fprintf(f, "     Y   " TARGET_FMT_lx "      SR  " TARGET_FMT_lx "\n",
                 env->y, env->sr);
 
     cpu_fprintf(f, "     SP  " TARGET_FMT_lx "\n", env->sp);
+
+    cpu_fprintf(f, "\n");
+
+
+
+    cpu_fprintf(f, "     LAST_RES  " TARGET_FMT_lx "\n",
+                    env->last_res);
 
     cpu_fprintf(f, "\n");
 }

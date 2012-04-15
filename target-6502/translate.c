@@ -530,40 +530,34 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          * Calls and rets
          */
         case iJSR: {
-            tcg_gen_addi_tl(regSP, regSP, 0x100);
-
-            /*  // This is old code, removed because writing a 16 bit word was throwing an exception...
-                //may be possible to disable this, however...
-            tcg_gen_addi_tl(regSP, regSP, 0x100-1);        // First, decrement SP, then write16, then decrement again.
-            tcg_gen_qemu_st16(regTMP, regSP, 0);            // This is because the stack of the 6502 is not word
-            tcg_gen_subi_tl(regSP, regSP, 0x100+1);        // aligned, AND is decremented after write.
-            */
+            tcg_gen_ori_tl(regSP, regSP, 0x100);
 
             tcg_gen_movi_tl(regTMP, (*paddr+1)>>8);
             tcg_gen_qemu_st8(regTMP, regSP, 0);
             tcg_gen_subi_tl(regSP, regSP, 1);
+            tcg_gen_ori_tl(regSP, regSP, 0x100);        // Fix the possible 8-bit wrap-around
             tcg_gen_movi_tl(regTMP, (*paddr+1)&0xFF);
             tcg_gen_qemu_st8(regTMP, regSP, 0);
 
-            tcg_gen_subi_tl(regSP, regSP, 0x100+1);
+            tcg_gen_subi_tl(regSP, regSP, 1);
+            tcg_gen_ext8u_tl(regSP, regSP);
 
             tcg_gen_movi_tl(regPC, getw_from_code(paddr)); // Jump to subroutine
             return EXIT_PC_UPDATED;
         }
         case iRTS: {
-            /*  // Same as above!...
-            tcg_gen_addi_tl(regSP, regSP, 0x100+1);
-            tcg_gen_qemu_ld16u(regPC, regSP, 0);
-            tcg_gen_subi_tl(regSP, regSP, 0x100-1);
-            */
+            tcg_gen_addi_tl(regSP, regSP, 1);
+            tcg_gen_ori_tl(regSP, regSP, 0x100);
 
-            tcg_gen_addi_tl(regSP, regSP, 0x100+1);
             tcg_gen_qemu_ld8u(regPC, regSP, 0);     // Low byte
             tcg_gen_addi_tl(regSP, regSP, 1);
+            tcg_gen_ext8u_tl(regSP, regSP);
+            tcg_gen_ori_tl(regSP, regSP, 0x100);    // Fix the possible wrap-around...
             tcg_gen_qemu_ld8u(regTMP, regSP, 0);    // High byte
             tcg_gen_shli_tl(regTMP, regTMP, 8);
             tcg_gen_or_tl(regPC, regPC, regTMP);
-            tcg_gen_subi_tl(regSP, regSP, 0x100);
+
+            tcg_gen_ext8u_tl(regSP, regSP);
 
             tcg_gen_addi_tl(regPC, regPC, 1);
             tcg_gen_ext16u_tl(regPC, regPC);        // Truncate to 16 bits
@@ -826,12 +820,14 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_addi_tl(regSP, regSP, 0x100);
             tcg_gen_qemu_st8(regAC, regSP, 0);
             tcg_gen_subi_tl(regSP, regSP, 0x100+1);
+            tcg_gen_ext8u_tl(regSP, regSP);
             return NO_EXIT;
         }
         case iPLA: {
-            tcg_gen_addi_tl(regSP, regSP, 0x100+1);
+            tcg_gen_addi_tl(regSP, regSP, 1);
+            tcg_gen_ori_tl(regSP, regSP, 0x100);    // By doing the sum this way we ensure the instruction respects bounds
             tcg_gen_qemu_ld8u(regAC, regSP, 0);
-            tcg_gen_subi_tl(regSP, regSP, 0x100);
+            tcg_gen_ext8u_tl(regSP, regSP);                         // No need to do bounds cheking again
             tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
             tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);
             return NO_EXIT;

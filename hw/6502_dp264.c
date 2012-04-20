@@ -83,7 +83,7 @@ static void mos6502_init(ram_addr_t ram_size,
 
     // TODO: Clean this after changing CPUState struct
     cpu = cpu_init(NULL);
-    cpu->trap_arg0 = ram_size; //0x10000;
+    cpu->trap_arg0 = 0x10000;   //ram_size;
     cpu->trap_arg1 = 0;
     cpu->trap_arg2 = 1;
 
@@ -154,6 +154,10 @@ static void mos6502_init(ram_addr_t ram_size,
     vmstate_register_ram_global(ram);
     memory_region_add_subregion(address_space, 0, ram);
 
+    MemoryRegion *unused = g_new(MemoryRegion, 1);
+    memory_region_init_reservation(unused, "6502.unused", ram_size - 0x10000);
+    memory_region_add_subregion(address_space, 0x10000, unused);
+
     // Load ROM
     if(bios_name == NULL) {
         bios_name = BIOS_FILENAME;
@@ -161,8 +165,8 @@ static void mos6502_init(ram_addr_t ram_size,
 
     // 4 KB of BIOS starting at 0x1000
     if(load_image_targphys(bios_name, 0x1000, 0x1FFF - 0x1000 + 1) < 0) {
-        fprintf(stderr, "Error loading bios file: %s\nRunning with empty memory.\n", bios_name);
-        //exit(-1);
+        fprintf(stderr, "Error loading bios file: %s\n", bios_name);
+        exit(-1);
     }
 
 #endif

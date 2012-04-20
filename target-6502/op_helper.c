@@ -136,12 +136,15 @@ target_ulong helper_getnum (void)
 
 /*****************************************************************************/
 /* Softmmu support */
+
 #if !defined (CONFIG_USER_ONLY)
 static void QEMU_NORETURN do_unaligned_access(target_ulong addr, int is_write,
                                               int is_user, void *retaddr)
 {
     uint64_t pc;
     uint32_t insn;
+
+    printf("Unaligned access!\n");
 
     do_restore_state(retaddr);
 
@@ -152,12 +155,17 @@ static void QEMU_NORETURN do_unaligned_access(target_ulong addr, int is_write,
     env->trap_arg1 = insn >> 26;                /* opcode */
     env->trap_arg2 = (insn >> 21) & 31;         /* dest regno */
     helper_excp(EXCP_UNALIGN, 0);
+
 }
+
 
 void QEMU_NORETURN cpu_unassigned_access(CPUState *env1,
                                          target_phys_addr_t addr, int is_write,
                                          int is_exec, int unused, int size)
 {
+
+    printf("Unassigned access!\n");
+
     env = env1;
     env->trap_arg0 = addr;
     env->trap_arg1 = is_write;

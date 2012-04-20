@@ -206,15 +206,13 @@ static inline uint32_t gen_abs_mode_addr(TCGv reg, uint32_t code_addr) {    // c
 }
 static inline uint32_t gen_Xabs_mode_addr(TCGv reg, uint32_t code_addr) {   // X+code_addr
     uint32_t base = getw_from_code(&code_addr);
-    tcg_gen_ext8s_tl(reg, regX);
-    tcg_gen_addi_tl(reg, reg, base);     // Add X
+    tcg_gen_addi_tl(reg, regX, base);    // Add X
     tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
     return code_addr;
 }
 static inline uint32_t gen_Yabs_mode_addr(TCGv reg, uint32_t code_addr) {   // Y+code_addr
     uint32_t base = getw_from_code(&code_addr);
-    tcg_gen_ext8s_tl(reg, regY);
-    tcg_gen_addi_tl(reg, reg, base);     // Add Y
+    tcg_gen_addi_tl(reg, regY, base);    // Add Y
     tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
     return code_addr;
 }
@@ -817,7 +815,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          * Misc
          */
         case iPHA: {
-            tcg_gen_addi_tl(regSP, regSP, 0x100);
+            tcg_gen_ori_tl(regSP, regSP, 0x100);
             tcg_gen_qemu_st8(regAC, regSP, 0);
             tcg_gen_subi_tl(regSP, regSP, 0x100+1);
             tcg_gen_ext8u_tl(regSP, regSP);

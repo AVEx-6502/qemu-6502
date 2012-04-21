@@ -83,7 +83,8 @@ static TCGv regSR;
 static TCGv regSP;
 
 static TCGv regTMP;
-static TCGv reg_last_res;
+static TCGv reg_last_res_CN;
+static TCGv reg_last_res_Z;
 
 
 #include "gen-icount.h"
@@ -108,7 +109,8 @@ static void cpu6502_translate_init(void)
     regPC = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, pc), "pc");
 
     regTMP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, tmp), "TMP");
-    reg_last_res = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_res), "LAST_RES");
+    reg_last_res_CN = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_res_CN), "LAST_RES_CN");
+    reg_last_res_Z = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_res_Z), "LAST_RES_Z");
 
     /* register helpers */
 #define GEN_HELPER 2
@@ -178,6 +180,8 @@ enum opcode {
 
     iSEC = 0x38,
     iCLC = 0x18,
+
+    iBIT_abs = 0x2C, iBIT_zpg = 0x24,
 
     iNOP = 0xEA,
 };
@@ -326,8 +330,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         load_imm_gen: {
             tcg_gen_movi_tl(used_reg, get_from_code(paddr));
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z, and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, used_reg);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, used_reg);
+            tcg_gen_mov_tl(reg_last_res_Z, used_reg);                     // Save result for Z flag computation
             return NO_EXIT;
         }
 
@@ -354,8 +359,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         load_gen: {
             *paddr = (*addr_func)(used_reg, *paddr);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, used_reg);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, used_reg);
+            tcg_gen_mov_tl(reg_last_res_Z, used_reg);                     // Save result for Z flag computation
             return NO_EXIT;
         }
 
@@ -404,8 +410,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         reg_transfer_gen: {
             tcg_gen_mov_tl(dst_reg, src_reg);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, dst_reg);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, dst_reg);
+            tcg_gen_mov_tl(reg_last_res_Z, dst_reg);                      // Save result for Z flag computation
             return NO_EXIT;
         }
 
@@ -421,10 +428,11 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
          // Immediate Add
         case iADC_imm: {
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);     // Get the carry
-            tcg_gen_add_tl(reg_last_res, regAC, reg_last_res);  // Add the carry
-            tcg_gen_addi_tl(reg_last_res, reg_last_res, get_from_code(paddr));  // Add the value
-            tcg_gen_ext8u_tl(regAC, reg_last_res);         // Truncate to 8 bits
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
+            tcg_gen_addi_tl(reg_last_res_CN, reg_last_res_CN, get_from_code(paddr));  // Add the value
+            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);
             // TODO: V flag
             return NO_EXIT;
         }
@@ -438,11 +446,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0x79:  addr_func = gen_Yabs_mode;          goto add_gen;
 
         add_gen: {
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);     // Get the carry
-            tcg_gen_add_tl(reg_last_res, regAC, reg_last_res);  // Add the carry
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
             *paddr = (*addr_func)(regTMP, *paddr);  // Get the value to add
-            tcg_gen_add_tl(reg_last_res, reg_last_res, regTMP);   // Add it
-            tcg_gen_ext8u_tl(regAC, reg_last_res);         // Truncate to 8 bits
+            tcg_gen_add_tl(reg_last_res_CN, reg_last_res_CN, regTMP); // Add it
+            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);
             // TODO: V flag
             return NO_EXIT;
         }
@@ -455,10 +464,11 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         // Immediate Subtract
         case iSBC_imm: {
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);      // Get the carry
-            tcg_gen_add_tl(reg_last_res, regAC, reg_last_res);   // Add the carry
-            tcg_gen_addi_tl(reg_last_res, reg_last_res, get_from_code(paddr) ^ 0xFF);  // Add ~M
-            tcg_gen_ext8u_tl(regAC, reg_last_res);             // Truncate to 8 bits
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);      // Get the carry
+            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);   // Add the carry
+            tcg_gen_addi_tl(reg_last_res_CN, reg_last_res_CN, get_from_code(paddr) ^ 0xFF);  // Add ~M
+            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);             // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);
             // TODO: V flag
             return NO_EXIT;
         }
@@ -472,12 +482,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0xF9:  addr_func = gen_Yabs_mode;          goto sub_gen;
 
         sub_gen: {
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);     // Get the carry
-            tcg_gen_add_tl(reg_last_res, regAC, reg_last_res);  // Add the carry
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
             *paddr = (*addr_func)(regTMP, *paddr);      // Get the value to add
             tcg_gen_xori_tl(regTMP, regTMP, 0x00FF);    // M = ~M, we only want the first byte
-            tcg_gen_add_tl(reg_last_res, reg_last_res, regTMP); // Add it
-            tcg_gen_ext8u_tl(regAC, reg_last_res);      // Truncate to 8 bits
+            tcg_gen_add_tl(reg_last_res_CN, reg_last_res_CN, regTMP); // Add it
+            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);      // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);
             // TODO: V flag
             return NO_EXIT;
         }
@@ -500,19 +511,20 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
         int cond;
         int mask;
-        case iBEQ:  cond = TCG_COND_NE;     mask = 0x00FF;      goto br_gen;
-        case iBNE:  cond = TCG_COND_EQ;     mask = 0x00FF;      goto br_gen;
-        case iBPL:  cond = TCG_COND_NE;     mask = 0x0080;      goto br_gen;
-        case iBMI:  cond = TCG_COND_EQ;     mask = 0x0080;      goto br_gen;
-        case iBCC:  cond = TCG_COND_NE;     mask = 0x0100;      goto br_gen;
-        case iBCS:  cond = TCG_COND_EQ;     mask = 0x0100;      goto br_gen;
+        TCGv last_res;
+        case iBEQ:  cond = TCG_COND_NE;     mask = 0x00FF;    last_res = reg_last_res_Z;     goto br_gen;
+        case iBNE:  cond = TCG_COND_EQ;     mask = 0x00FF;    last_res = reg_last_res_Z;     goto br_gen;
+        case iBPL:  cond = TCG_COND_NE;     mask = 0x0080;    last_res = reg_last_res_CN;    goto br_gen;
+        case iBMI:  cond = TCG_COND_EQ;     mask = 0x0080;    last_res = reg_last_res_CN;    goto br_gen;
+        case iBCC:  cond = TCG_COND_NE;     mask = 0x0100;    last_res = reg_last_res_CN;    goto br_gen;
+        case iBCS:  cond = TCG_COND_EQ;     mask = 0x0100;    last_res = reg_last_res_CN;    goto br_gen;
 
         br_gen: {
             // NOTE: the number taken from operand must be signed,
             //       because we can subtract from the PC...
             int8_t br_target = get_from_code(paddr);
             int lbl_nobranch = gen_new_label();
-            tcg_gen_andi_tl(regTMP, reg_last_res, mask);
+            tcg_gen_andi_tl(regTMP, last_res, mask);
             tcg_gen_brcondi_tl(cond, regTMP, 0, lbl_nobranch);
             tcg_gen_movi_tl(regPC, (*paddr + br_target) & 0xFFFF);
             tcg_gen_exit_tb(0);
@@ -566,8 +578,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          * Flags direct manipulations...
          */
 
-        case iSEC:  tcg_gen_ori_tl(reg_last_res, reg_last_res, 0x0100);     return NO_EXIT;
-        case iCLC:  tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x00FF);    return NO_EXIT;
+        case iSEC:  tcg_gen_ori_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);     return NO_EXIT;
+        case iCLC:  tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x00FF);    return NO_EXIT;
 
 
         /*
@@ -583,8 +595,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         inc_dec_gen: {
             tcg_gen_addi_tl(used_reg, used_reg, value);
             tcg_gen_ext8u_tl(used_reg, used_reg);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, used_reg);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, used_reg);
+            tcg_gen_mov_tl(reg_last_res_Z, used_reg);                     // Save result for Z flag computation
             return NO_EXIT;
         }
 
@@ -603,8 +616,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
             tcg_gen_addi_tl(reg_value, reg_value, value);   // Do the computation
             tcg_gen_ext8u_tl(reg_value, reg_value);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, reg_value);
+            tcg_gen_mov_tl(reg_last_res_Z, reg_value);                    // Save result for Z flag computation
             tcg_gen_qemu_st8(reg_value, regTMP, 0);     // Store back the value
             tcg_temp_free(reg_value);
             return NO_EXIT;
@@ -615,8 +629,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
 
         case iASL_A: {
-            tcg_gen_shli_tl(reg_last_res, regAC, 1);    // Save result for Z, N and C flag computation
-            tcg_gen_ext8u_tl(regAC, reg_last_res);      // Truncate to 8 bits
+            tcg_gen_shli_tl(reg_last_res_CN, regAC, 1);    // Save result for N and C flag computation
+            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);      // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);         // Save result for Z flag computation
             return NO_EXIT;
         }
         case iASL_zpg:      addr_func = gen_zero_page_mode_addr;    goto asl_mem_gen;
@@ -624,19 +639,21 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iASL_abs:      addr_func = gen_abs_mode_addr;          goto asl_mem_gen;
         case iASL_absX:     addr_func = gen_Xabs_mode_addr;         goto asl_mem_gen;
         asl_mem_gen: {
-            *paddr = (*addr_func)(regTMP, *paddr);          // regTMP has the address
-            tcg_gen_qemu_ld8u(reg_last_res, regTMP, 0);
-            tcg_gen_shli_tl(reg_last_res, reg_last_res, 1); // Save result for Z, N and C flag computation
-            tcg_gen_qemu_st8(reg_last_res, regTMP, 0);      // Store back the value
+            *paddr = (*addr_func)(regTMP, *paddr);                // regTMP has the address
+            tcg_gen_qemu_ld8u(reg_last_res_CN, regTMP, 0);
+            tcg_gen_shli_tl(reg_last_res_CN, reg_last_res_CN, 1); // Save result for N and C flag computation
+            tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_CN);    // Save result for Z flag computation
+            tcg_gen_qemu_st8(reg_last_res_CN, regTMP, 0);         // Store back the value
             return NO_EXIT;
         }
 
 
         case iLSR_A: {
-            tcg_gen_andi_tl(reg_last_res, regAC, 0x01);  // Save first bit to carry
-            tcg_gen_shli_tl(reg_last_res, reg_last_res, 8);
-            tcg_gen_shri_tl(regAC, regAC, 1);           // Shift it
-            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);     // Save result for Z, N and C flag computation
+            tcg_gen_andi_tl(reg_last_res_CN, regAC, 0x01);            // Save first bit to carry
+            tcg_gen_shli_tl(reg_last_res_CN, reg_last_res_CN, 8);
+            tcg_gen_shri_tl(regAC, regAC, 1);                         // Shift it
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);   // Save result for N and C flag computation
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);                    // Save result for Z flag computation
             return NO_EXIT;
         }
         case iLSR_zpg:      addr_func = gen_zero_page_mode_addr;    goto lsr_mem_gen;
@@ -645,13 +662,14 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iLSR_absX:     addr_func = gen_Xabs_mode_addr;         goto lsr_mem_gen;
         lsr_mem_gen: {
             TCGv reg_value = tcg_temp_new();
-            *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
+            *paddr = (*addr_func)(regTMP, *paddr);                       // regTMP has the address
             tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
-            tcg_gen_andi_tl(reg_last_res, reg_value, 0x01);  // Save first bit to carry
-            tcg_gen_shli_tl(reg_last_res, reg_last_res, 8);
-            tcg_gen_shri_tl(reg_value, reg_value, 1);   // Shift it
-            tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);     // Save result for Z, N and C flag computation
-            tcg_gen_qemu_st8(reg_value, regTMP, 0);     // Store back the value
+            tcg_gen_andi_tl(reg_last_res_CN, reg_value, 0x01);           // Save first bit to carry
+            tcg_gen_shli_tl(reg_last_res_CN, reg_last_res_CN, 8);
+            tcg_gen_shri_tl(reg_value, reg_value, 1);                    // Shift it
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, reg_value);  // Save result for N and C flag computation
+            tcg_gen_mov_tl(reg_last_res_Z, reg_value);                   // Save result for Z flag computation
+            tcg_gen_qemu_st8(reg_value, regTMP, 0);                      // Store back the value
             tcg_temp_free(reg_value);
             return NO_EXIT;
         }
@@ -659,9 +677,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         case iROL_A: {
             tcg_gen_shli_tl(regAC, regAC, 1);
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);
-            tcg_gen_or_tl(reg_last_res, regAC, reg_last_res);   // Save result for Z, N and C flag computation
-            tcg_gen_ext8u_tl(regAC, reg_last_res);         // Truncate to 8 bits
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);   // Save result for N and C flag computation
+            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);            // Save result for Z flag computation
             return NO_EXIT;
         }
         case iROL_zpg:      addr_func = gen_zero_page_mode_addr;    goto rol_mem_gen;
@@ -670,12 +689,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iROL_absX:     addr_func = gen_Xabs_mode_addr;         goto rol_mem_gen;
         rol_mem_gen: {
             TCGv reg_value = tcg_temp_new();
-            *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
+            *paddr = (*addr_func)(regTMP, *paddr);                        // regTMP has the address
             tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
             tcg_gen_shli_tl(reg_value, reg_value, 1);
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 8);
-            tcg_gen_or_tl(reg_last_res, reg_value, reg_last_res);   // Save result for Z, N and C flag computation
-            tcg_gen_qemu_st8(reg_last_res, regTMP, 0);     // Store back the value
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, reg_value);   // Save result for N and C flag computation
+            tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_CN);            // Save result for Z flag computation
+            tcg_gen_qemu_st8(reg_last_res_CN, regTMP, 0);                 // Store back the value
             tcg_temp_free(reg_value);
             return NO_EXIT;
         }
@@ -684,13 +704,14 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
 
         case iROR_A: {
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save previous carry
-            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);       // Save result for Z, N and C flag computation
-            tcg_gen_andi_tl(regAC, regAC, 0x01);                    // Save first bit in AC
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 1);         // Shift it
-            tcg_gen_shli_tl(regAC, regAC, 8);                       // Put saved bit in carry position
-            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);       // Save new carry
-            tcg_gen_ext8u_tl(regAC, reg_last_res);                  // Truncate to 8 bits
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save previous carry
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);       // Save result for N and C flag computation
+            tcg_gen_andi_tl(regAC, regAC, 0x01);                          // Save first bit in AC
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 1);         // Shift it
+            tcg_gen_shli_tl(regAC, regAC, 8);                             // Put saved bit in carry position
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);       // Save new carry
+            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);                     // Truncate to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);                        // Save result for Z flag computation
             return NO_EXIT;
         }
         case iROR_zpg:      addr_func = gen_zero_page_mode_addr;    goto ror_mem_gen;
@@ -699,15 +720,16 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iROR_absX:     addr_func = gen_Xabs_mode_addr;         goto ror_mem_gen;
         ror_mem_gen: {
             TCGv reg_value = tcg_temp_new();
-            *paddr = (*addr_func)(regTMP, *paddr);      // regTMP has the address
+            *paddr = (*addr_func)(regTMP, *paddr);                        // regTMP has the address
             tcg_gen_qemu_ld8u(reg_value, regTMP, 0);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save previous carry
-            tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);   // Save result for Z, N and C flag computation
-            tcg_gen_andi_tl(reg_value, reg_value, 0x01);            // Save first bit in reg_value
-            tcg_gen_shri_tl(reg_last_res, reg_last_res, 1);         // Shift it
-            tcg_gen_shli_tl(reg_value, reg_value, 8);               // Put saved bit in carry position
-            tcg_gen_or_tl(reg_last_res, reg_last_res, reg_value);   // Save new carry
-            tcg_gen_qemu_st8(reg_last_res, regTMP, 0);     // Store back the value
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save previous carry
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, reg_value);   // Save result for N and C flag computation
+            tcg_gen_andi_tl(reg_value, reg_value, 0x01);                  // Save first bit in reg_value
+            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 1);         // Shift it
+            tcg_gen_shli_tl(reg_value, reg_value, 8);                     // Put saved bit in carry position
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, reg_value);   // Save new carry
+            tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_CN);            // Save result for Z flag computation
+            tcg_gen_qemu_st8(reg_last_res_CN, regTMP, 0);                 // Store back the value
             tcg_temp_free(reg_value);
             return NO_EXIT;
         }
@@ -729,8 +751,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         bitwise_gen_imm: {
             (*bitwise_func_imm)(regAC, regAC, get_from_code(paddr));
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);                         // Save result for Z flag computation
             return NO_EXIT;
         }
 
@@ -766,14 +789,15 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         bitwise_gen: {
             *paddr = (*addr_func)(regTMP, *paddr);
             (*bitwise_func)(regAC, regAC, regTMP);
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);                        // Save result for Z flag computation
             return NO_EXIT;
         }
 
 
         /*
-         * Compares
+         * Compares and BIT
          */
 
         // Immediate
@@ -783,7 +807,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         cmp_gen_imm: {
             // Add ~M + 1 and save result for Z, N and C flag computation
-            tcg_gen_addi_tl(reg_last_res, used_reg, (get_from_code(paddr) ^ 0xFF) + 1);
+            tcg_gen_addi_tl(reg_last_res_CN, used_reg, (get_from_code(paddr) ^ 0xFF) + 1);
+            tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_CN);
             return NO_EXIT;
         }
 
@@ -802,12 +827,25 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         cmp_gen: {
             *paddr = (*addr_func)(regTMP, *paddr);      // Get the value to add
-            tcg_gen_sub_tl(reg_last_res, used_reg, regTMP);     // Save result for Z, N and C flag computation
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x01FF);    // Clear bytes 31..9
-            tcg_gen_xori_tl(reg_last_res, reg_last_res, 0x0100);    // Calculate carry
+            tcg_gen_sub_tl(reg_last_res_CN, used_reg, regTMP);     // Save result for N and C flag computation
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x01FF);    // Clear bits 31..9
+            tcg_gen_xori_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Calculate carry
+            tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_CN);      // Save result for Z flag computation
             return NO_EXIT;
         }
 
+
+        case iBIT_abs: addr_func = gen_abs_mode;           goto bit_gen;
+        case iBIT_zpg: addr_func = gen_zero_page_mode;     goto bit_gen;
+
+        bit_gen: {
+            *paddr = (*addr_func)(regTMP, *paddr);      // Get the value to add
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Clear previous N flag value
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regTMP);      // Put new value in the N flag
+            // TODO: V flag
+            tcg_gen_and_tl(reg_last_res_Z, regAC, regTMP);                // Calculate Z flag
+            return NO_EXIT;
+        }
 
 
 
@@ -826,8 +864,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_ori_tl(regSP, regSP, 0x100);    // By doing the sum this way we ensure the instruction respects bounds
             tcg_gen_qemu_ld8u(regAC, regSP, 0);
             tcg_gen_ext8u_tl(regSP, regSP);                         // No need to do bounds cheking again
-            tcg_gen_andi_tl(reg_last_res, reg_last_res, 0x0100);    // Save result for Z and N flag computation
-            tcg_gen_or_tl(reg_last_res, reg_last_res, regAC);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);              // Save result for Z flag computation
             return NO_EXIT;
         }
         case iNOP:  return NO_EXIT;
@@ -836,8 +875,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
 
         // These are phony instructions to work with the terminal...
+        case 0xAF:
+            gen_helper_printnum(reg_last_res_Z);
+            tcg_gen_movi_tl(regTMP, ' ');
+            gen_helper_printchar(regTMP);
         case 0xBF:
-            gen_helper_printnum(reg_last_res);
+            gen_helper_printnum(reg_last_res_CN);
             tcg_gen_movi_tl(regTMP, ' ');
             gen_helper_printchar(regTMP);
             return NO_EXIT;
@@ -1013,8 +1056,8 @@ CPU6502State * cpu_6502_init (const char *cpu_model)
     cpu6502_translate_init();
     tlb_flush(env, 1);
 
-    env->sr = 0x20;     // Flag in bit 5 is always 1
-    env->last_res = 1;  // CPU must start with flags N and Z set to 0, so this can't be 0
+    env->sr = 0x20;       // Flag in bit 5 is always 1
+    env->last_res_Z = 1;  // CPU must start with flag Z set to 0, so this can't be 0
 
     /* Default to ev67; no reason not to emulate insns by default.  */
     env->amask = (AMASK_BWX | AMASK_FIX | AMASK_CIX | AMASK_MVI

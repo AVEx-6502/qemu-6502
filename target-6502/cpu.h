@@ -103,6 +103,10 @@ struct CPU6502State {
     uint32_t    tmp;
     uint32_t    last_res_CN;   // result of last operation, used to compute C and N flags
     uint32_t    last_res_Z;    // result of last operation, used to compute Z flag
+    uint32_t    last_op1_V;    // last operands and result for V flag computation
+    uint32_t    last_op2_V;
+    uint32_t    last_res_V;
+
 
     /* The Internal Processor Registers.  Some of these we assume always
        exist for use in user-mode.  */

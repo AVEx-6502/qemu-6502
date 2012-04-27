@@ -586,6 +586,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_movi_tl(regPC, getw_from_code(paddr)); // Jump to subroutine
             return EXIT_PC_UPDATED;
         }
+
         case iRTS: {
             tcg_gen_addi_tl(regSP, regSP, 1);
             tcg_gen_ori_tl(regSP, regSP, 0x100);
@@ -670,10 +671,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_mov_tl(reg_last_res_Z, regAC);         // Save result for Z flag computation
             return NO_EXIT;
         }
+
         case iASL_zpg:      addr_func = gen_zero_page_mode_addr;    goto asl_mem_gen;
         case iASL_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto asl_mem_gen;
         case iASL_abs:      addr_func = gen_abs_mode_addr;          goto asl_mem_gen;
         case iASL_absX:     addr_func = gen_Xabs_mode_addr;         goto asl_mem_gen;
+
         asl_mem_gen: {
             *paddr = (*addr_func)(regTMP, *paddr);                // regTMP has the address
             tcg_gen_qemu_ld8u(reg_last_res_CN, regTMP, 0);
@@ -692,10 +695,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_mov_tl(reg_last_res_Z, regAC);                    // Save result for Z flag computation
             return NO_EXIT;
         }
+
         case iLSR_zpg:      addr_func = gen_zero_page_mode_addr;    goto lsr_mem_gen;
         case iLSR_zpgX:     addr_func = gen_zero_page_X_mode_addr;  goto lsr_mem_gen;
         case iLSR_abs:      addr_func = gen_abs_mode_addr;          goto lsr_mem_gen;
         case iLSR_absX:     addr_func = gen_Xabs_mode_addr;         goto lsr_mem_gen;
+
         lsr_mem_gen: {
             TCGv reg_value = tcg_temp_new();
             *paddr = (*addr_func)(regTMP, *paddr);                       // regTMP has the address
@@ -897,6 +902,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_ext8u_tl(regSP, regSP);
             return NO_EXIT;
         }
+
         case iPLA: {
             tcg_gen_addi_tl(regSP, regSP, 1);
             tcg_gen_ori_tl(regSP, regSP, 0x100);    // By doing the sum this way we ensure the instruction respects bounds
@@ -907,6 +913,69 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_mov_tl(reg_last_res_Z, regAC);              // Save result for Z flag computation
             return NO_EXIT;
         }
+
+        // TODO: Don't forget to change these when adding the remaining flags
+        case iPHP: {
+            // Calculate flags register
+            int lbl_notZ = gen_new_label();
+            tcg_gen_shri_tl(regTMP, reg_last_res_CN, 8);     // Carry flag
+            tcg_gen_brcondi_tl(TCG_COND_NE, reg_last_res_Z, 0, lbl_notZ);    // Zero flag
+            tcg_gen_ori_tl(regTMP, regTMP, 0x02);
+            gen_set_label(lbl_notZ);
+            TCGv flags = tcg_temp_new();
+            gen_V_flag(flags);     // Overflow flag
+            tcg_gen_shri_tl(flags, flags, 1);
+            tcg_gen_or_tl(flags, flags, regTMP);
+            tcg_gen_andi_tl(regTMP, reg_last_res_CN, 0x80);     // Negative flag
+            tcg_gen_or_tl(flags, flags, regTMP);
+            tcg_gen_ori_tl(flags, flags, 0x30);     // Unused bit and Break flag = 1, Decimal and Interrupt flag = 0
+
+            // Push flags register into the stack
+            tcg_gen_ori_tl(regSP, regSP, 0x100);
+            tcg_gen_qemu_st8(flags, regSP, 0);
+            tcg_gen_subi_tl(regSP, regSP, 0x100+1);
+            tcg_gen_ext8u_tl(regSP, regSP);
+
+            tcg_temp_free(flags);
+
+            return NO_EXIT;
+        }
+
+        case iPLP: {
+            // Get byte from top of the stack
+            tcg_gen_addi_tl(regSP, regSP, 1);
+            tcg_gen_ori_tl(regSP, regSP, 0x100);    // By doing the sum this way we ensure the instruction respects bounds
+            tcg_gen_qemu_ld8u(regTMP, regSP, 0);
+            tcg_gen_ext8u_tl(regSP, regSP);                         // No need to do bounds cheking again
+
+            // Update the flags
+            int lbl_notV = gen_new_label();
+            int lbl_calcC = gen_new_label();
+            tcg_gen_mov_tl(reg_last_res_CN, regTMP);    // Negative
+            tcg_gen_andi_tl(reg_last_res_Z, regTMP, 0x02); // Zero
+            tcg_gen_xori_tl(reg_last_res_Z, reg_last_res_Z, 0x02);
+            tcg_gen_andi_tl(regTMP, regTMP, 0x41);      // Keep only V and C
+            tcg_gen_brcondi_tl(TCG_COND_LTU, regTMP, 0x40, lbl_notV);
+
+            // V == 1
+            tcg_gen_movi_tl(reg_last_op1_V, 0);
+            tcg_gen_movi_tl(reg_last_op2_V, 0);
+            tcg_gen_movi_tl(reg_last_res_V, 0xFF);
+            tcg_gen_br(lbl_calcC);
+
+            // V == 0
+            gen_set_label(lbl_notV);
+            tcg_gen_mov_tl(reg_last_op2_V, reg_last_res_V);
+
+            // Update the carry
+            gen_set_label(lbl_calcC);
+            tcg_gen_andi_tl(regTMP, regTMP, 0x01);
+            tcg_gen_shli_tl(regTMP, regTMP, 8);
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regTMP);
+
+            return NO_EXIT;
+        }
+
         case iNOP:  return NO_EXIT;
 
 

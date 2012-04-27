@@ -72,9 +72,13 @@ void cpu_dump_state (CPUState *env, FILE *f, fprintf_function cpu_fprintf,
     cpu_fprintf(f, "\n");
 
 
-
-    cpu_fprintf(f, "     LAST_RES_CN  " TARGET_FMT_lx "      LAST_REG_Z  " TARGET_FMT_lx "\n",
+    cpu_fprintf(f, "     LAST_RES_CN  " TARGET_FMT_lx "      LAST_RES_Z  " TARGET_FMT_lx "\n",
                     env->last_res_CN, env->last_res_Z);
+
+    cpu_fprintf(f, "     LAST_OP1_V   " TARGET_FMT_lx "      LAST_OP2_V  " TARGET_FMT_lx "\n",
+                    env->last_op1_V, env->last_op2_V);
+
+    cpu_fprintf(f, "     LAST_RES_V   " TARGET_FMT_lx "\n", env->last_res_V);
 
     cpu_fprintf(f, "\n");
 }

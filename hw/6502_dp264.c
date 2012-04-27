@@ -92,12 +92,12 @@ static void mos6502_init(ram_addr_t ram_size,
 
 #if 0   // This should work but it doesn't...
     /*
-     * Address Range  |   Function
-     * ---------------+------------------
-     * $0000 - $007F  | TIA registers
-     * $0080 - $00FF  |     RAM
-     * $0200 - $02FF  | RIOT registers
-     * $1000 - $1FFF  |     ROM
+     * Address Range  |   Function      |       Size
+     * ---------------+-----------------+----------------------
+     * $0000 - $007F  | TIA registers   |     128 bytes
+     * $0080 - $00FF  |     RAM         |     128 bytes
+     * $0200 - $02FF  | RIOT registers  |     256 bytes
+     * $1000 - $1FFF  |     ROM         |    4096 bytes = 4 KB
      */
 
     // TIA registers

@@ -25,16 +25,6 @@
 #include "softfloat.h"
 
 
-#if defined(CONFIG_USER_ONLY)
-int cpu_6502_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
-                                int mmu_idx)
-{
-    env->exception_index = EXCP_MMFAULT;
-    env->trap_arg0 = address;
-    return 1;
-}
-
-#else
 
 target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 {
@@ -44,11 +34,10 @@ target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 int cpu_6502_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,
                                int mmu_idx)
 {
-    tlb_set_page(env, addr & TARGET_PAGE_MASK, addr & TARGET_PAGE_MASK,
+    tlb_set_page(env, addr & 0xFFFF0000, addr & 0xFFFF0000,
                  PAGE_READ | PAGE_WRITE | PAGE_EXEC, mmu_idx, TARGET_PAGE_SIZE);
     return 0;
 }
-#endif /* USER_ONLY */
 
 void do_interrupt (CPUState *env)
 {

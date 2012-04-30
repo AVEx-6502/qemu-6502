@@ -96,6 +96,7 @@ static void mos6502_init(ram_addr_t ram_size,
      * ---------------+-----------------+----------------------
      * $0000 - $007F  | TIA registers   |     128 bytes
      * $0080 - $00FF  |     RAM         |     128 bytes
+     * $0100 - $01FF  |    Unused       |     256 bytes
      * $0200 - $02FF  | RIOT registers  |     256 bytes
      * $1000 - $1FFF  |     ROM         |    4096 bytes = 4 KB
      */
@@ -150,14 +151,21 @@ static void mos6502_init(ram_addr_t ram_size,
 #else
 
     MemoryRegion *ram = g_new(MemoryRegion, 1);
-    memory_region_init_ram(ram, "6502.ram", 0x10000);   // 64 KB of RAM
-    vmstate_register_ram_global(ram);
+    memory_region_init_ram(ram, "6502.ram", 0x10000 - 0x0000);
+    //ram->ram = true;
+    //vmstate_register_ram_global(ram);
     memory_region_add_subregion(address_space, 0, ram);
+/*
+    MemoryRegion *rom = g_new(MemoryRegion, 1);
+    memory_region_init_ram(rom, "6502b.rom", 0x10000 - 0x1000);
+    memory_region_set_readonly(rom, true);
+    //ram->ram = true;
+    memory_region_add_subregion(address_space, 0x1000, rom);
 
     MemoryRegion *unused = g_new(MemoryRegion, 1);
-    memory_region_init_reservation(unused, "6502.unused", ram_size - 0x10000);
+    memory_region_init_reservation(unused, "6502.invalid", ram_size - 0x10000);
     memory_region_add_subregion(address_space, 0x10000, unused);
-
+*/
     // Load ROM
     if(bios_name == NULL) {
         bios_name = BIOS_FILENAME;

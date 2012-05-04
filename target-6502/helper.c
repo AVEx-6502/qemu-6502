@@ -28,7 +28,7 @@
 
 target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 {
-    return addr & TARGET_PAGE_MASK;
+    return addr;
 }
 
 int cpu_6502_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,

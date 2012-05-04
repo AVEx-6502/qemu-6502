@@ -9,66 +9,60 @@
 #include "sysemu.h"
 #include "exec-memory.h"
 
+#include "console.h"
+#include "qemu-option.h"
+#include "qemu-char.h"
+#include "6502_keyboard.h"
 
 #define BIOS_FILENAME      "6502_bios.rom"
 
+static CharDriverState *console;
 
-static uint64_t tia_read(void *opaque, target_phys_addr_t addr, unsigned size)
+
+static uint64_t io_read(void *opaque, target_phys_addr_t addr, unsigned size)
 {
-    fprintf(stderr, "Reading TIA address %llu.\n", (unsigned long long)addr);
+    if(addr == 0x00) {  // addr is relative to start of memory region
+        return read_char();
+    } else {
+        fprintf(stderr, "Reading IO address %llu.\n", (unsigned long long)addr);
+    }
+
     return 0;
 }
 
 
-static void tia_write(void *opaque, target_phys_addr_t addr, uint64_t value, unsigned size)
+static void io_write(void *opaque, target_phys_addr_t addr, uint64_t value, unsigned size)
 {
-    fprintf(stderr, "Writting %llu in TIA address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
-}
-
-
-static uint64_t riot_read(void *opaque, target_phys_addr_t addr, unsigned size)
-{
-    fprintf(stderr, "Reading RIOT address %llu.\n", (unsigned long long)addr);
-    return 0;
-}
-
-
-static void riot_write(void *opaque, target_phys_addr_t addr,uint64_t value, unsigned size)
-{
-    fprintf(stderr, "Writting %llu in RIOT address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
+    if(addr == 0x00) {  // addr is relative to start of memory region
+        uint8_t c = (uint8_t)value;
+        qemu_chr_fe_write(console, (uint8_t*)&c, 1);
+        if(c == '\n') {
+            c = '\r';
+            qemu_chr_fe_write(console, (uint8_t*)&c, 1);
+        }
+    } else {
+        fprintf(stderr, "Writting %llu in IO address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
+    }
 }
 
 
 
-static const MemoryRegionOps tia_ops = {
-    .read = tia_read,
-    .write = tia_write,
-    .endianness = DEVICE_LITTLE_ENDIAN,
-    .valid = {
-        .min_access_size = 1,
-        .max_access_size = 1,
-    },
-    .impl = {
-        .min_access_size = 1,
-        .max_access_size = 1,
-    },
-};
 
-
-static const MemoryRegionOps riot_ops = {
-    .read = riot_read,
-    .write = riot_write,
+static const MemoryRegionOps io_ops = {
+    .read = io_read,
+    .write = io_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
     .valid = {
         .min_access_size = 1,
         .max_access_size = 4,
+        .unaligned = 1,
     },
     .impl = {
         .min_access_size = 1,
         .max_access_size = 4,
+        .unaligned = 1,
     },
 };
-
 
 
 
@@ -90,82 +84,57 @@ static void mos6502_init(ram_addr_t ram_size,
     cpu->trap_arg1 = 0;
     cpu->trap_arg2 = 1;
 
-
-    // This should work but it doesn't...
-    /*
-     * Address Range  |   Function      |       Size
-     * ---------------+-----------------+----------------------
-     * $0000 - $007F  | TIA registers   |     128 bytes
-     * $0080 - $00FF  |     RAM         |     128 bytes
-     * $0100 - $01FF  |     RAM (stack) |     256 bytes
-     * $0200 - $02FF  | RIOT registers  |     256 bytes
-     * $0300 - $0FFF  |  ?????????      |    3328 bytes = 3,25 KB
-     * $1000 - $1FFF  |     ROM         |    4096 bytes = 4,00 KB
-     */
-#if 1
     MemoryRegion *address_space = get_system_memory();
 
-
-    // TIA registers
-    MemoryRegion *tia_regs = g_new(MemoryRegion, 1);
-    memory_region_init_io(tia_regs, &tia_ops, cpu, "6502.tia_regs", 0x007F - 0x0000 + 1);
-    memory_region_add_subregion(address_space, 0x0000, tia_regs);
+    /*
+     * Address Range  |   Function    |       Size
+     * ---------------+---------------+----------------------
+     * $0000 - $0FFF  |     RAM       |    4096 bytes
+     * $1000 - $1FFF  |     ROM       |    4096 bytes
+     * $2000 - $FDFF  |     RAM       |   56832 bytes
+     * $FE00 - $FEFF  |     I/O       |     256 bytes
+     * $FF00 - $FFFF  |     RAM       |     256 bytes
+     */
+#if 1
 
     // RAM
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
-    memory_region_init_ram(ram, "6502.ram", 0x00FF - 0x0080 + 1);
-    vmstate_register_ram_global(ram);
-    memory_region_add_subregion(address_space, 0x0080, ram);
-
-    // Unused space between RAM and RIOT registers
-    MemoryRegion *unused1 = g_new(MemoryRegion, 1);
-    memory_region_init_reservation(unused1, "6502.unused1", 0x01FF - 0x0100 + 1);
-    memory_region_add_subregion(address_space, 0x0100, unused1);
-
-    // RIOT registers
-    MemoryRegion *riot_regs = g_new(MemoryRegion, 1);
-    memory_region_init_io(riot_regs, &riot_ops, cpu, "6502.riot_regs", 0x02FF - 0x0200 + 1);
-    memory_region_add_subregion(address_space, 0x0200, riot_regs);
-
-    // Unused space between RIOT registers and ROM
-    MemoryRegion *unused2 = g_new(MemoryRegion, 1);
-    memory_region_init_reservation(unused2, "6502.unused2", 0x0FFF - 0x0300 + 1);
-    memory_region_add_subregion(address_space, 0x0300, unused2);
+    MemoryRegion *ram1 = g_new(MemoryRegion, 1);
+    memory_region_init_ram(ram1, "6502.ram1", 0x0FFF - 0x0000 + 1);
+    vmstate_register_ram_global(ram1);
+    memory_region_add_subregion(address_space, 0x0000, ram1);
 
     // ROM
     MemoryRegion *rom = g_new(MemoryRegion, 1);
     memory_region_init_ram(rom, "6502.rom", 0x1FFF - 0x1000 + 1);
-    memory_region_set_readonly(rom, true);
+//    memory_region_set_readonly(rom, true);
     vmstate_register_ram_global(rom);
     memory_region_add_subregion(address_space, 0x1000, rom);
 
-    // Rest of the address space
-    MemoryRegion *unused3 = g_new(MemoryRegion, 1);
-    memory_region_init_ram(unused3, "6502.unused3", (ram_size - 1) - 0x2000 + 1);
-    memory_region_add_subregion(address_space, 0x2000, unused3);
+    // More RAM
+    MemoryRegion *ram2 = g_new(MemoryRegion, 1);
+    memory_region_init_ram(ram2, "6502.ram2", 0xFFEF - 0x2000 + 1);
+    vmstate_register_ram_global(ram2);
+    memory_region_add_subregion(address_space, 0x2000, ram2);
+
+    // I/O
+    MemoryRegion *io = g_new(MemoryRegion, 1);
+    memory_region_init_io(io, &io_ops, NULL, "6502.io", 0xFEFF - 0xFE00 + 1);
+    memory_region_add_subregion(address_space, 0xFE00, io);
+
+    // Even more RAM
+    MemoryRegion *ram3 = g_new(MemoryRegion, 1);
+    memory_region_init_ram(ram3, "6502.ram3", 0xFFFF - 0xFF00 + 1);
+    vmstate_register_ram_global(ram3);
+    memory_region_add_subregion(address_space, 0xFF00, ram3);
+
+
 #else
 
-
-    MemoryRegion *address_space = get_system_memory();
-
-
     // RAM
-    MemoryRegion *ram = g_malloc(sizeof(MemoryRegion));
+    MemoryRegion *ram = g_new(MemoryRegion, 1);
     memory_region_init_ram(ram, "6502.ram", 0x10000);
     vmstate_register_ram_global(ram);
     memory_region_add_subregion(address_space, 0x0000, ram);
-/*
-    // TIA registers
-    MemoryRegion *tia_regs = g_malloc(sizeof(MemoryRegion));
-    memory_region_init_ram(tia_regs, "6502.tia_regs", 0x10000 - 0x1000);
-    memory_region_add_subregion(address_space, 0x1000, tia_regs);
-
-    // RAM
-    MemoryRegion *ram2 = g_malloc(sizeof(MemoryRegion));
-    memory_region_init_ram(ram, "6502.ram2", ram_size - 0x10000);
-    memory_region_add_subregion(address_space, 0x10000, ram2);
-*/
-
 
 #endif
 
@@ -180,7 +149,35 @@ static void mos6502_init(ram_addr_t ram_size,
         exit(-1);
     }
 
+    // Create console
+    static QemuOptsList opts_list = {
+        .name = "6502.console",
+        .head = QTAILQ_HEAD_INITIALIZER(opts_list.head),
+        .desc = {
+            {
+                .name = "cols",
+                .type = QEMU_OPT_NUMBER,
+            },{
+                .name = "rows",
+                .type = QEMU_OPT_NUMBER,
+            },
+            { /* end of list */ }
+        },
+    };
+
+    QemuOpts *console_options = qemu_opts_create(&opts_list, NULL, 0);
+    qemu_opt_set(console_options, "cols", "80");
+    qemu_opt_set(console_options, "rows", "25");
+    console = text_console_init(console_options);
+
+    DisplayState *ds = get_displaystate();
+    text_consoles_set_display(ds);
+
+    init_keyboard();
+
 }
+
+
 
 static QEMUMachine mos6502_machine = {
     .name = "mos6502",

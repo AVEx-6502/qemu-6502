@@ -61,11 +61,11 @@ static const MemoryRegionOps riot_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
     .valid = {
         .min_access_size = 1,
-        .max_access_size = 1,
+        .max_access_size = 4,
     },
     .impl = {
         .min_access_size = 1,
-        .max_access_size = 1,
+        .max_access_size = 4,
     },
 };
 
@@ -83,14 +83,15 @@ static void mos6502_init(ram_addr_t ram_size,
 
     // TODO: Clean this after changing CPUState struct
     cpu = cpu_init(NULL);
+    cpu->pc = 0x1000;   // Address where to start execution
+
+
     cpu->trap_arg0 = 0x10000;   //ram_size;
     cpu->trap_arg1 = 0;
     cpu->trap_arg2 = 1;
 
-    MemoryRegion *address_space = get_system_memory();
 
-
-#if 0   // This should work but it doesn't...
+    // This should work but it doesn't...
     /*
      * Address Range  |   Function      |       Size
      * ---------------+-----------------+----------------------
@@ -101,6 +102,9 @@ static void mos6502_init(ram_addr_t ram_size,
      * $0300 - $0FFF  |  ?????????      |    3328 bytes = 3,25 KB
      * $1000 - $1FFF  |     ROM         |    4096 bytes = 4,00 KB
      */
+#if 1
+    MemoryRegion *address_space = get_system_memory();
+
 
     // TIA registers
     MemoryRegion *tia_regs = g_new(MemoryRegion, 1);
@@ -137,62 +141,44 @@ static void mos6502_init(ram_addr_t ram_size,
 
     // Rest of the address space
     MemoryRegion *unused3 = g_new(MemoryRegion, 1);
-    memory_region_init_reservation(unused3, "6502.unused3", (ram_size - 1) - 0x2000 + 1);
+    memory_region_init_ram(unused3, "6502.unused3", (ram_size - 1) - 0x2000 + 1);
     memory_region_add_subregion(address_space, 0x2000, unused3);
-
-    // Load ROM
-    if(bios_name == NULL) {
-        bios_name = BIOS_FILENAME;
-    }
-
-    if(load_image_targphys(bios_name, 0x1000, 0x1FFF - 0x1000 + 1) < 0) {
-        fprintf(stderr, "Error loading bios file: %s\n", bios_name);
-        exit(-1);
-    }
 #else
-/*
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
-    memory_region_init_ram(ram, "6502.ram", 0x10000 - 0x0000);
-    vmstate_register_ram_global(ram);
-    memory_region_add_subregion(address_space, 0, ram);
-*/
+
+
+    MemoryRegion *address_space = get_system_memory();
+
 
     // RAM
-    MemoryRegion *ram = g_malloc(sizeof(*ram));
-    memory_region_init_ram(ram, "6502.ram", ram_size);
+    MemoryRegion *ram = g_malloc(sizeof(MemoryRegion));
+    memory_region_init_ram(ram, "6502.ram", 0x10000);
     vmstate_register_ram_global(ram);
-
-    MemoryRegion *ram_below_32k = g_malloc(sizeof(*ram_below_32k));
-    memory_region_init_alias(ram_below_32k, "ram-below-32k", ram, 0x0000, 0x8000);
-    memory_region_add_subregion(address_space, 0x0000, ram_below_32k);
-
-    MemoryRegion *ram_above_32k = g_malloc(sizeof(*ram_above_32k));
-    memory_region_init_alias(ram_above_32k, "ram-above-32k", ram, 0x8000, 0x8000);
-    memory_region_add_subregion(address_space, 0x8000, ram_above_32k);
-
-
+    memory_region_add_subregion(address_space, 0x0000, ram);
+/*
     // TIA registers
-    MemoryRegion *tia_regs = g_new(MemoryRegion, 1);
-    memory_region_init_io(tia_regs, &tia_ops, cpu, "6502.tia_regs", 0x0080);
+    MemoryRegion *tia_regs = g_malloc(sizeof(MemoryRegion));
+    memory_region_init_ram(tia_regs, "6502.tia_regs", 0x10000 - 0x1000);
+    memory_region_add_subregion(address_space, 0x1000, tia_regs);
 
-    MemoryRegion *tia_regs_alias = g_new(MemoryRegion, 1);
-    memory_region_init_alias(tia_regs_alias, "tia_regs", tia_regs, 0x0000, 0x0080);
-    memory_region_add_subregion_overlap(address_space, 0x0000, tia_regs_alias, 0);
+    // RAM
+    MemoryRegion *ram2 = g_malloc(sizeof(MemoryRegion));
+    memory_region_init_ram(ram, "6502.ram2", ram_size - 0x10000);
+    memory_region_add_subregion(address_space, 0x10000, ram2);
+*/
+
+
+#endif
+
 
     // Load ROM
     if(bios_name == NULL) {
         bios_name = BIOS_FILENAME;
     }
-
     // 4 KB of BIOS starting at 0x1000
     if(load_image_targphys(bios_name, 0x1000, 0x1FFF - 0x1000 + 1) < 0) {
         fprintf(stderr, "Error loading bios file: %s\n", bios_name);
         exit(-1);
     }
-
-#endif
-
-    cpu->pc = 0x1000;   // BIOS address
 
 }
 

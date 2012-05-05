@@ -554,7 +554,6 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
                 tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
                 tcg_gen_mov_tl(reg_last_res_Z, regAC);
                 tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
-                return NO_EXIT;
             }
             tcg_gen_br(lbl_cont);
 
@@ -575,7 +574,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
                 // High nibble
                 tcg_gen_andi_tl(hi, regAC, 0xF0);
-                tcg_gen_andi_tl(tmp2, regTMP, 0xFF);
+                tcg_gen_andi_tl(tmp2, regTMP, 0xF0);
                 tcg_gen_add_tl(hi, hi, tmp2);
 
                 // Compute the zero flag
@@ -618,6 +617,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
             gen_set_label(lbl_cont);
             tcg_temp_free(decimal_decide);
+            return NO_EXIT;
         }
 
 

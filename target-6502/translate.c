@@ -186,12 +186,12 @@ enum opcode {
     iINX = 0xE8, iINY = 0xC8, iINC_abs = 0xEE, iINC_zpg = 0xE6, iINC_zpgX = 0xF6, iINC_absX = 0xFE,
     iDEX = 0xCA, iDEY = 0x88, iDEC_abs = 0xCE, iDEC_zpg = 0xC6, iDEC_zpgX = 0xD6, iDEC_absX = 0xDE,
 
-    iSEC = 0x38,
-    iCLC = 0x18,
-
-    iCLV = 0xB8,
-
     iBIT_abs = 0x2C, iBIT_zpg = 0x24,
+
+    iCLC = 0x18, iSEC = 0x38,
+    iCLV = 0xB8,
+    iCLD = 0xD8, iSED = 0xF8,
+    iCLI = 0x58, iSEI = 0x78,
 
     iNOP = 0xEA,
 };
@@ -618,6 +618,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             return NO_EXIT;
         }
 
+        // Clear's and Set's  for D and I flags...
+        case iCLD:  tcg_gen_andi_tl(regSR, regSR, ~flagD);    return NO_EXIT;
+        case iSED:  tcg_gen_ori_tl (regSR, regSR,  flagD);    return NO_EXIT;
+        case iCLI:  tcg_gen_andi_tl(regSR, regSR, ~flagI);    return NO_EXIT;
+        case iSEI:  tcg_gen_ori_tl (regSR, regSR,  flagI);    return NO_EXIT;
+
 
         /*
          *  Increment and Decrement
@@ -928,7 +934,11 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_or_tl(flags, flags, regTMP);
             tcg_gen_andi_tl(regTMP, reg_last_res_CN, 0x80);     // Negative flag
             tcg_gen_or_tl(flags, flags, regTMP);
-            tcg_gen_ori_tl(flags, flags, 0x30);     // Unused bit and Break flag = 1, Decimal and Interrupt flag = 0
+            tcg_gen_ori_tl(flags, flags, 0x30);     // Unused bit and Break flag = 1
+
+            // Apply D and I flags to the value being pushed
+            tcg_gen_andi_tl(regSR, regSR, 0x0C);    // Only D,I
+            tcg_gen_or_tl(flags, flags, regSR);
 
             // Push flags register into the stack
             tcg_gen_ori_tl(regSP, regSP, 0x100);
@@ -946,7 +956,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_addi_tl(regSP, regSP, 1);
             tcg_gen_ori_tl(regSP, regSP, 0x100);    // By doing the sum this way we ensure the instruction respects bounds
             tcg_gen_qemu_ld8u(regTMP, regSP, 0);
-            tcg_gen_ext8u_tl(regSP, regSP);                         // No need to do bounds cheking again
+            tcg_gen_ext8u_tl(regSP, regSP);         // No need to do bounds cheking again
+
+            // Save the flags in register (this applies only to D,I flags)
+            tcg_gen_mov_tl(regSR, regTMP);
 
             // Update the flags
             int lbl_notV = gen_new_label();

@@ -94,8 +94,11 @@ struct CPU6502State {
     uint32_t    x;
     uint32_t    y;
 
-    uint32_t    sr;     // These are the flags: NV-BDIZC
     uint32_t    sp;
+    uint32_t    sr;     // These are the flags: NV-BDIZC
+                        //  (note that only D,I are kept here; B is a ghost flag
+                        //   that is generated only by events that put the flags
+                        //   in the stack, and is only 1 for PHP)
 
     uint32_t    pc;
 
@@ -126,6 +129,17 @@ struct CPU6502State {
     int error_code;
 
     uint32_t amask;
+};
+
+enum flag_masks {
+    flagC   = (1<<0),
+    flagZ   = (1<<1),
+    flagI   = (1<<2),
+    flagD   = (1<<3),
+    flagB   = (1<<4),
+    flagUNU = (1<<5),
+    flagV   = (1<<6),
+    flagN   = (1<<7),
 };
 
 #define cpu_init cpu_6502_init

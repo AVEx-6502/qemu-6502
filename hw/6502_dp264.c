@@ -18,6 +18,21 @@
 
 static CharDriverState *console;
 
+static int can_read_handler(void *opaque)
+{
+    return 1;
+}
+
+// This is called when a key pressed by the user is delivered to out console
+static void read_handler(void *opaque, const uint8_t* data, int datalen)
+{
+    int i;
+    for(i = 0; i < datalen; i++) {
+        write_char(data[i]);
+    }
+}
+
+
 
 static uint64_t io_read(void *opaque, target_phys_addr_t addr, unsigned size)
 {
@@ -40,6 +55,8 @@ static void io_write(void *opaque, target_phys_addr_t addr, uint64_t value, unsi
             c = '\r';
             qemu_chr_fe_write(console, (uint8_t*)&c, 1);
         }
+    } else if(addr == 0x01) {   // enable or disable console echo
+        qemu_chr_fe_set_echo(console, (value != 0));
     } else {
         fprintf(stderr, "Writting %llu in IO address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
     }
@@ -172,6 +189,10 @@ static void mos6502_init(ram_addr_t ram_size,
 
     DisplayState *ds = get_displaystate();
     text_consoles_set_display(ds);
+
+    console_select(3);
+
+    qemu_chr_add_handlers(console, can_read_handler, read_handler, NULL, NULL);
 
     init_keyboard();
 

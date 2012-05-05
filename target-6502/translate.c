@@ -447,37 +447,177 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
          // Immediate Add
         case iADC_imm: {
+            int lbl_decimal = gen_new_label();
+            int lbl_cont = gen_new_label();
+
             uint8_t value = get_from_code(paddr);       // Get the value to add
-            tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
-            tcg_gen_movi_tl(reg_last_op2_V, value);     // Save operand 2 (V flag)
-            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
-            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
-            tcg_gen_addi_tl(reg_last_res_CN, reg_last_res_CN, value);  // Add the value
-            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
-            tcg_gen_mov_tl(reg_last_res_Z, regAC);
-            tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
+
+            // See if decimal mode on:
+            tcg_gen_andi_tl(regTMP, regSR, flagD);
+            tcg_gen_brcondi_tl(TCG_COND_NE, regTMP, 0, lbl_decimal);
+
+            {
+                // Code for "binary" mode
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_movi_tl(reg_last_op2_V, value);     // Save operand 2 (V flag)
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+                tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
+                tcg_gen_addi_tl(reg_last_res_CN, reg_last_res_CN, value);  // Add the value
+                tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
+                tcg_gen_mov_tl(reg_last_res_Z, regAC);
+                tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
+            }
+            tcg_gen_br(lbl_cont);
+
+            gen_set_label(lbl_decimal);
+            {
+                TCGv lo = tcg_temp_local_new();
+                TCGv hi = tcg_temp_local_new();
+                int no_adjust_lo = gen_new_label();
+                int no_adjust_hi = gen_new_label();
+
+                // Low nibble
+                tcg_gen_andi_tl(lo, regAC, 0x0F);
+                tcg_gen_addi_tl(lo, lo, value & 0x0F);
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+                tcg_gen_add_tl(lo, lo, reg_last_res_CN);
+
+                // High nibble
+                tcg_gen_andi_tl(hi, regAC, 0xF0);
+                tcg_gen_addi_tl(hi, hi, value & 0xF0);
+
+                // Compute the zero flag
+                tcg_gen_add_tl(reg_last_res_Z, hi, lo);
+                tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_Z);
+
+                // See if we need to adjust the low nibble
+                tcg_gen_brcondi_tl(TCG_COND_LT, lo, 10, no_adjust_lo);
+                tcg_gen_addi_tl(lo, lo, 6);
+                //tcg_gen_andi_tl(lo, 0x0F);
+                tcg_gen_addi_tl(hi, hi, 16);
+                gen_set_label(no_adjust_lo);
+
+                // Negative flag
+                tcg_gen_andi_tl(reg_last_res_CN, hi, 0x0080);   // Carry flag is not valid under this formula
+
+                // Overflow flag
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_movi_tl(reg_last_op2_V, value);     // Save operand 2 (V flag)
+                tcg_gen_mov_tl(reg_last_res_V, hi);         // Save result (V flag)
+
+                // See if we need to adjust the high nibble
+                tcg_gen_brcondi_tl(TCG_COND_LT, hi, 0xA0, no_adjust_hi);
+                tcg_gen_addi_tl(hi, hi, 0x60);
+                gen_set_label(no_adjust_hi);
+
+                // Compute final result
+                tcg_gen_andi_tl(regAC, lo, 0x0F);
+                tcg_gen_add_tl(regAC, regAC, hi);
+                tcg_gen_ext8u_tl(regAC, regAC);
+
+                // Carry flag
+                tcg_gen_andi_tl(hi, hi, 0x0100);
+                tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, hi);
+                tcg_temp_free(hi);
+                tcg_temp_free(lo);
+            }
+
+            gen_set_label(lbl_cont);
             return NO_EXIT;
         }
 
-        case 0x6D:  addr_func = gen_abs_mode;           goto add_gen;
-        case 0x65:  addr_func = gen_zero_page_mode;     goto add_gen;
-        case 0x61:  addr_func = gen_indirect_X_mode;    goto add_gen;
-        case 0x71:  addr_func = gen_Y_indirect_mode;    goto add_gen;
-        case 0x75:  addr_func = gen_zero_page_X_mode;   goto add_gen;
-        case 0x7D:  addr_func = gen_Xabs_mode;          goto add_gen;
-        case 0x79:  addr_func = gen_Yabs_mode;          goto add_gen;
+        case iADC_abs:   addr_func = gen_abs_mode;           goto add_gen;
+        case iADC_zpg:   addr_func = gen_zero_page_mode;     goto add_gen;
+        case iADC_Xind:  addr_func = gen_indirect_X_mode;    goto add_gen;
+        case iADC_indY:  addr_func = gen_Y_indirect_mode;    goto add_gen;
+        case iADC_zpgX:  addr_func = gen_zero_page_X_mode;   goto add_gen;
+        case iADC_absX:  addr_func = gen_Xabs_mode;          goto add_gen;
+        case iADC_absY:  addr_func = gen_Yabs_mode;          goto add_gen;
 
         add_gen: {
+            TCGv decimal_decide = tcg_temp_local_new();
+            int lbl_decimal = gen_new_label();
+            int lbl_cont = gen_new_label();
+
             *paddr = (*addr_func)(regTMP, *paddr);      // Get the value to add
-            tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
-            tcg_gen_mov_tl(reg_last_op2_V, regTMP);     // Save operand 2 (V flag)
-            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
-            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
-            tcg_gen_add_tl(reg_last_res_CN, reg_last_res_CN, regTMP); // Add the value
-            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
-            tcg_gen_mov_tl(reg_last_res_Z, regAC);
-            tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
-            return NO_EXIT;
+
+            // See if decimal mode on:
+            tcg_gen_andi_tl(decimal_decide, regSR, flagD);
+            tcg_gen_brcondi_tl(TCG_COND_NE, decimal_decide, 0, lbl_decimal);
+
+            {
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_mov_tl(reg_last_op2_V, regTMP);     // Save operand 2 (V flag)
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+                tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
+                tcg_gen_add_tl(reg_last_res_CN, reg_last_res_CN, regTMP); // Add the value
+                tcg_gen_ext8u_tl(regAC, reg_last_res_CN);         // Truncate to 8 bits
+                tcg_gen_mov_tl(reg_last_res_Z, regAC);
+                tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
+                return NO_EXIT;
+            }
+            tcg_gen_br(lbl_cont);
+
+            gen_set_label(lbl_decimal);
+            {
+                TCGv tmp2 = tcg_temp_local_new();
+                TCGv lo = tcg_temp_local_new();
+                TCGv hi = tcg_temp_local_new();
+                int no_adjust_lo = gen_new_label();
+                int no_adjust_hi = gen_new_label();
+
+                // Low nibble
+                tcg_gen_andi_tl(lo, regAC, 0x0F);
+                tcg_gen_andi_tl(tmp2, regTMP, 0x0F);
+                tcg_gen_add_tl(lo, lo, tmp2);
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+                tcg_gen_add_tl(lo, lo, reg_last_res_CN);
+
+                // High nibble
+                tcg_gen_andi_tl(hi, regAC, 0xF0);
+                tcg_gen_andi_tl(tmp2, regTMP, 0xFF);
+                tcg_gen_add_tl(hi, hi, tmp2);
+
+                // Compute the zero flag
+                tcg_gen_add_tl(reg_last_res_Z, hi, lo);
+                tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_Z);
+
+                // See if we need to adjust the low nibble
+                tcg_gen_brcondi_tl(TCG_COND_LT, lo, 10, no_adjust_lo);
+                tcg_gen_addi_tl(lo, lo, 6);
+                //tcg_gen_andi_tl(lo, 0x0F);
+                tcg_gen_addi_tl(hi, hi, 16);
+                gen_set_label(no_adjust_lo);
+
+                // Negative flag
+                tcg_gen_andi_tl(reg_last_res_CN, hi, 0x0080);   // Carry flag is not valid under this formula
+
+                // Overflow flag
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_mov_tl(reg_last_op2_V, regTMP);     // Save operand 2 (V flag)
+                tcg_gen_mov_tl(reg_last_res_V, hi);         // Save result (V flag)
+
+                // See if we need to adjust the high nibble
+                tcg_gen_brcondi_tl(TCG_COND_LT, hi, 0xA0, no_adjust_hi);
+                tcg_gen_addi_tl(hi, hi, 0x60);
+                gen_set_label(no_adjust_hi);
+
+                // Compute final result
+                tcg_gen_andi_tl(regAC, lo, 0x0F);
+                tcg_gen_add_tl(regAC, regAC, hi);
+                tcg_gen_ext8u_tl(regAC, regAC);
+
+                // Carry flag
+                tcg_gen_andi_tl(hi, hi, 0x0100);
+                tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, hi);
+
+                tcg_temp_free(hi);
+                tcg_temp_free(lo);
+                tcg_temp_free(tmp2);
+            }
+
+            gen_set_label(lbl_cont);
+            tcg_temp_free(decimal_decide);
         }
 
 

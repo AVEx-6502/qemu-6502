@@ -582,9 +582,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
                 tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_Z);
 
                 // See if we need to adjust the low nibble
-                tcg_gen_brcondi_tl(TCG_COND_LT, lo, 10, no_adjust_lo);
+                tcg_gen_brcondi_tl(TCG_COND_LTU, lo, 10, no_adjust_lo);
                 tcg_gen_addi_tl(lo, lo, 6);
-                //tcg_gen_andi_tl(lo, 0x0F);
                 tcg_gen_addi_tl(hi, hi, 16);
                 gen_set_label(no_adjust_lo);
 
@@ -597,13 +596,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
                 tcg_gen_mov_tl(reg_last_res_V, hi);         // Save result (V flag)
 
                 // See if we need to adjust the high nibble
-                tcg_gen_brcondi_tl(TCG_COND_LT, hi, 0xA0, no_adjust_hi);
+                tcg_gen_brcondi_tl(TCG_COND_LTU, hi, 0xA0, no_adjust_hi);
                 tcg_gen_addi_tl(hi, hi, 0x60);
                 gen_set_label(no_adjust_hi);
 
                 // Compute final result
                 tcg_gen_andi_tl(regAC, lo, 0x0F);
-                tcg_gen_add_tl(regAC, regAC, hi);
+                tcg_gen_or_tl(regAC, regAC, hi);
                 tcg_gen_ext8u_tl(regAC, regAC);
 
                 // Carry flag
@@ -628,15 +627,80 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         // Immediate Subtract
         case iSBC_imm: {
+            int lbl_decimal = gen_new_label();
+            int lbl_cont = gen_new_label();
+
             uint8_t value = get_from_code(paddr) ^ 0xFF;
-            tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
-            tcg_gen_movi_tl(reg_last_op2_V, value);     // Save operand 2 (V flag)
-            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);      // Get the carry
-            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);   // Add the carry
-            tcg_gen_addi_tl(reg_last_res_CN, reg_last_res_CN, value);  // Add ~M
-            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);             // Truncate to 8 bits
-            tcg_gen_mov_tl(reg_last_res_Z, regAC);
-            tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
+
+            // See if decimal mode on:
+            tcg_gen_andi_tl(regTMP, regSR, flagD);
+            tcg_gen_brcondi_tl(TCG_COND_NE, regTMP, 0, lbl_decimal);
+
+            {
+                // Code for "binary" mode
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_movi_tl(reg_last_op2_V, value);     // Save operand 2 (V flag)
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);      // Get the carry
+                tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);   // Add the carry
+                tcg_gen_addi_tl(reg_last_res_CN, reg_last_res_CN, value);  // Add ~M
+                tcg_gen_ext8u_tl(regAC, reg_last_res_CN);             // Truncate to 8 bits
+                tcg_gen_mov_tl(reg_last_res_Z, regAC);
+                tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
+            }
+            tcg_gen_br(lbl_cont);
+
+            gen_set_label(lbl_decimal);
+            {
+                // Code for "BCD" mode
+                tcg_gen_mov_tl(regTMP, reg_last_res_CN);    // Save the old Carry value
+
+                // There follows the code to compute the flgas, which is just like in binary mode...
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_movi_tl(reg_last_op2_V, value);     // Save operand 2 (V flag)
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);      // Get the carry
+                tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);   // Add the carry
+                tcg_gen_addi_tl(reg_last_res_CN, reg_last_res_CN, value);  // Add ~M
+                tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_CN);   // Truncate to 8 bits
+                tcg_gen_mov_tl(reg_last_res_V, reg_last_res_Z);      // Save result (V flag)
+
+                // Now compute the result
+                value = value^0xFF;         // Get the real value back again...
+                TCGv lo = tcg_temp_local_new();
+                TCGv hi = tcg_temp_local_new();
+                int no_adjust_lo = gen_new_label();
+                int no_adjust_hi = gen_new_label();
+
+                // Low nibble
+                tcg_gen_andi_tl(lo, regAC, 0x0F);
+                tcg_gen_subi_tl(lo, lo, (value & 0x0F)+1);
+                tcg_gen_shri_tl(regTMP, regTMP, 8);     // Get the carry
+                tcg_gen_add_tl(lo, lo, regTMP);
+
+                // High nibble
+                tcg_gen_andi_tl(hi, regAC, 0xF0);
+                tcg_gen_subi_tl(hi, hi, value & 0xF0);
+
+                // See if we need to adjust the low nibble
+                tcg_gen_brcondi_tl(TCG_COND_LTU, lo, 10, no_adjust_lo);
+                tcg_gen_subi_tl(lo, lo, 6);
+                tcg_gen_subi_tl(hi, hi, 16);
+                gen_set_label(no_adjust_lo);
+
+                // See if we need to adjust the high nibble
+                tcg_gen_brcondi_tl(TCG_COND_LTU, hi, 0xA0, no_adjust_hi);
+                tcg_gen_subi_tl(hi, hi, 0x60);
+                gen_set_label(no_adjust_hi);
+
+                // Compute final result
+                tcg_gen_andi_tl(regAC, lo, 0x0F);
+                tcg_gen_or_tl(regAC, regAC, hi);
+                tcg_gen_ext8u_tl(regAC, regAC);
+
+                tcg_temp_free(hi);
+                tcg_temp_free(lo);
+            }
+
+            gen_set_label(lbl_cont);
             return NO_EXIT;
         }
 
@@ -649,16 +713,85 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0xF9:  addr_func = gen_Yabs_mode;          goto sub_gen;
 
         sub_gen: {
+            TCGv tmp2 = tcg_temp_local_new();
+            int lbl_decimal = gen_new_label();
+            int lbl_cont = gen_new_label();
+
             *paddr = (*addr_func)(regTMP, *paddr);      // Get the value to add
             tcg_gen_xori_tl(regTMP, regTMP, 0x00FF);    // M = ~M, we only want the first byte
-            tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
-            tcg_gen_mov_tl(reg_last_op2_V, regTMP);     // Save operand 2 (V flag)
-            tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
-            tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
-            tcg_gen_add_tl(reg_last_res_CN, reg_last_res_CN, regTMP); // Add the value
-            tcg_gen_ext8u_tl(regAC, reg_last_res_CN);      // Truncate to 8 bits
-            tcg_gen_mov_tl(reg_last_res_Z, regAC);
-            tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
+
+            // See if decimal mode on:
+            tcg_gen_andi_tl(tmp2, regSR, flagD);
+            tcg_gen_brcondi_tl(TCG_COND_NE, tmp2, 0, lbl_decimal);
+
+            {
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_mov_tl(reg_last_op2_V, regTMP);     // Save operand 2 (V flag)
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+                tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
+                tcg_gen_add_tl(reg_last_res_CN, reg_last_res_CN, regTMP); // Add the value
+                tcg_gen_ext8u_tl(regAC, reg_last_res_CN);      // Truncate to 8 bits
+                tcg_gen_mov_tl(reg_last_res_Z, regAC);
+                tcg_gen_mov_tl(reg_last_res_V, regAC);      // Save result (V flag)
+            }
+            tcg_gen_br(lbl_cont);
+
+            gen_set_label(lbl_decimal);
+            {
+                // Code for "BCD" mode
+                tcg_gen_mov_tl(tmp2, reg_last_res_CN);    // Save the old Carry value
+
+                // There follows the code to compute the flags, which is just like in binary mode...
+                tcg_gen_mov_tl(reg_last_op1_V, regAC);      // Save operand 1 (V flag)
+                tcg_gen_mov_tl(reg_last_op2_V, regTMP);     // Save operand 2 (V flag)
+                tcg_gen_shri_tl(reg_last_res_CN, reg_last_res_CN, 8);     // Get the carry
+                tcg_gen_add_tl(reg_last_res_CN, regAC, reg_last_res_CN);  // Add the carry
+                tcg_gen_add_tl(reg_last_res_CN, reg_last_res_CN, regTMP); // Add the value
+                tcg_gen_ext8u_tl(reg_last_res_Z, reg_last_res_CN);   // Truncate to 8 bits
+                tcg_gen_mov_tl(reg_last_res_V, reg_last_res_Z);      // Save result (V flag)
+
+                // Now compute the result
+                tcg_gen_xori_tl(regTMP, regTMP, 0x00FF);        // Get the real value back again...
+                TCGv lo = tcg_temp_local_new();
+                TCGv hi = tcg_temp_local_new();
+                int no_adjust_lo = gen_new_label();
+                int no_adjust_hi = gen_new_label();
+
+                // Low nibble
+                tcg_gen_andi_tl(lo, regAC, 0x0F);
+                tcg_gen_shri_tl(tmp2, tmp2, 8);     // Get the carry
+                tcg_gen_add_tl(lo, lo, tmp2);
+                tcg_gen_andi_tl(tmp2, regTMP, 0x0F);    // We don't need the carry value anymore, so let's reuse the register.
+                tcg_gen_addi_tl(tmp2, tmp2, 1);
+                tcg_gen_sub_tl(lo, lo, tmp2);
+
+                // High nibble
+                tcg_gen_andi_tl(hi, regAC, 0xF0);
+                tcg_gen_andi_tl(tmp2, regTMP, 0xF0);
+                tcg_gen_sub_tl(hi, hi, tmp2);
+
+                // See if we need to adjust the low nibble
+                tcg_gen_brcondi_tl(TCG_COND_LTU, lo, 10, no_adjust_lo);
+                tcg_gen_subi_tl(lo, lo, 6);
+                tcg_gen_subi_tl(hi, hi, 16);
+                gen_set_label(no_adjust_lo);
+
+                // See if we need to adjust the high nibble
+                tcg_gen_brcondi_tl(TCG_COND_LTU, hi, 0xA0, no_adjust_hi);
+                tcg_gen_subi_tl(hi, hi, 0x60);
+                gen_set_label(no_adjust_hi);
+
+                // Compute final result
+                tcg_gen_andi_tl(regAC, lo, 0x0F);
+                tcg_gen_or_tl(regAC, regAC, hi);
+                tcg_gen_ext8u_tl(regAC, regAC);
+
+                tcg_temp_free(hi);
+                tcg_temp_free(lo);
+            }
+
+            gen_set_label(lbl_cont);
+            tcg_temp_free(tmp2);
             return NO_EXIT;
         }
 

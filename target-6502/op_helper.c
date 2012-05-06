@@ -74,7 +74,7 @@ void helper_printstuff (uint32_t addr, uint32_t instruction)
     // Isto é querer sair do QEMU "à campeão", mas dá jeito para testar...
     fprintf(stderr, "Found unimplemented instruction. Shutting down . . .\n");
     fprintf(stdout, "\n"); fflush(stdout);
-    exit(0);
+    exit(-1);
 }
 
 
@@ -124,12 +124,15 @@ target_ulong helper_getchar (void)
 target_ulong helper_getnum (void)
 {
     unsigned ret;
-    //fscanf(stdin, "%*s");
     fscanf(stdin, "%u", &ret);
     return ret;
 }
 
-
+void helper_shutdown (void)
+{
+    fprintf(stdout, "\n"); fflush(stdout);
+    exit(0);
+}
 
 
 

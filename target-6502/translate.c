@@ -179,7 +179,7 @@ enum opcode {
     iPLP = 0x28,
 
     iJSR = 0x20, iRTS = 0x60,
-    iBRK = 0x00, iRTI = 0x04,
+    iBRK = 0x00, iRTI = 0x40,
 
     iBPL=0x10, iBMI=0x30, iBCC=0x90, iBCS=0xB0, iBNE=0xD0, iBEQ=0xF0, iBVC = 0x50, iBVS = 0x70,
 
@@ -911,8 +911,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iJMP_abs:  tcg_gen_movi_tl(regPC, getw_from_code(paddr));  return EXIT_PC_UPDATED;
         case iJMP_ind: {
             gen_abs_mode_addr(regTMP, *paddr);
-            tcg_gen_qemu_ld16u(regTMP, regTMP, 0);
-            tcg_gen_mov_tl(regPC, regTMP);
+            tcg_gen_qemu_ld16u(regPC, regTMP, 0);
             return EXIT_PC_UPDATED;
         }
 
@@ -1319,6 +1318,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0xFF:  // Write to stdout
             gen_helper_printchar(regAC);
             return NO_EXIT;
+        case 0x0F:  // Shutdown VM
+            gen_helper_shutdown();
+            return EXIT_PC_STALE;
 
         default:
         {

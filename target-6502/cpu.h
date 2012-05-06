@@ -29,6 +29,12 @@
 
 #define TARGET_LONG_BITS 32
 
+// target supports implicit self modifying code
+#define TARGET_HAS_SMC
+// support for self modifying code even if the modified instruction is
+//   close to the modifying instruction
+#define TARGET_HAS_PRECISE_SMC
+
 #define CPUState struct CPU6502State
 
 #include "cpu-defs.h"

@@ -131,6 +131,8 @@ struct CPU6502State {
     uint32_t amask;
 };
 
+#define BRK_VEC 0xFFFE
+
 enum flag_masks {
     flagC   = (1<<0),
     flagZ   = (1<<1),

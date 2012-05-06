@@ -178,8 +178,8 @@ enum opcode {
     iPLA = 0x68,
     iPLP = 0x28,
 
-    iJSR = 0x20,
-    iRTS = 0x60,
+    iJSR = 0x20, iRTS = 0x60,
+    iBRK = 0x00, iRTI = 0x04,
 
     iBPL=0x10, iBMI=0x30, iBCC=0x90, iBCS=0xB0, iBNE=0xD0, iBEQ=0xF0, iBVC = 0x50, iBVS = 0x70,
 
@@ -320,6 +320,115 @@ static void gen_V_flag(TCGv reg) {
     tcg_temp_free(temp);
     tcg_gen_andi_tl(reg, reg, 0x80);
 }
+
+
+
+
+static void gen_iPHP(void)
+{
+    // Calculate flags register
+    int lbl_notZ = gen_new_label();
+    tcg_gen_shri_tl(regTMP, reg_last_res_CN, 8);     // Carry flag
+    tcg_gen_brcondi_tl(TCG_COND_NE, reg_last_res_Z, 0, lbl_notZ);    // Zero flag
+    tcg_gen_ori_tl(regTMP, regTMP, 0x02);
+    gen_set_label(lbl_notZ);
+    TCGv flags = tcg_temp_new();
+    gen_V_flag(flags);     // Overflow flag
+    tcg_gen_shri_tl(flags, flags, 1);
+    tcg_gen_or_tl(flags, flags, regTMP);
+    tcg_gen_andi_tl(regTMP, reg_last_res_CN, 0x80);     // Negative flag
+    tcg_gen_or_tl(flags, flags, regTMP);
+    tcg_gen_ori_tl(flags, flags, 0x30);     // Unused bit and Break flag = 1
+
+    // Apply D and I flags to the value being pushed
+    tcg_gen_andi_tl(regSR, regSR, 0x0C);    // Only D,I
+    tcg_gen_or_tl(flags, flags, regSR);
+
+    // Push flags register into the stack
+    tcg_gen_ori_tl(regSP, regSP, 0x100);
+    tcg_gen_qemu_st8(flags, regSP, 0);
+    tcg_gen_subi_tl(regSP, regSP, 0x100+1);
+    tcg_gen_ext8u_tl(regSP, regSP);
+
+    tcg_temp_free(flags);
+}
+
+static void gen_iPLP(void)
+{
+    // Get byte from top of the stack
+    tcg_gen_addi_tl(regSP, regSP, 1);
+    tcg_gen_ori_tl(regSP, regSP, 0x100);    // By doing the sum this way we ensure the instruction respects bounds
+    tcg_gen_qemu_ld8u(regTMP, regSP, 0);
+    tcg_gen_ext8u_tl(regSP, regSP);         // No need to do bounds cheking again
+
+    // Save the flags in register (this applies only to D,I flags)
+    tcg_gen_mov_tl(regSR, regTMP);
+
+    // Update the flags
+    int lbl_notV = gen_new_label();
+    int lbl_calcC = gen_new_label();
+    tcg_gen_mov_tl(reg_last_res_CN, regTMP);    // Negative
+    tcg_gen_andi_tl(reg_last_res_Z, regTMP, 0x02); // Zero
+    tcg_gen_xori_tl(reg_last_res_Z, reg_last_res_Z, 0x02);
+    tcg_gen_andi_tl(regTMP, regTMP, 0x41);      // Keep only V and C
+    tcg_gen_brcondi_tl(TCG_COND_LTU, regTMP, 0x40, lbl_notV);
+
+    // V == 1
+    tcg_gen_movi_tl(reg_last_op1_V, 0);
+    tcg_gen_movi_tl(reg_last_op2_V, 0);
+    tcg_gen_movi_tl(reg_last_res_V, 0xFF);
+    tcg_gen_br(lbl_calcC);
+
+    // V == 0
+    gen_set_label(lbl_notV);
+    tcg_gen_mov_tl(reg_last_op2_V, reg_last_res_V);
+
+    // Update the carry
+    gen_set_label(lbl_calcC);
+    tcg_gen_andi_tl(regTMP, regTMP, 0x01);
+    tcg_gen_shli_tl(regTMP, regTMP, 8);
+    tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regTMP);
+}
+
+
+// PPC means Push PC
+static void gen_PPC(uint16_t ret_addr)
+{
+    tcg_gen_ori_tl(regSP, regSP, 0x100);
+
+    tcg_gen_movi_tl(regTMP, (ret_addr)>>8);
+    tcg_gen_qemu_st8(regTMP, regSP, 0);
+    tcg_gen_subi_tl(regSP, regSP, 1);
+    tcg_gen_ori_tl(regSP, regSP, 0x100);        // Fix the possible 8-bit wrap-around
+    tcg_gen_movi_tl(regTMP, (ret_addr)&0xFF);
+    tcg_gen_qemu_st8(regTMP, regSP, 0);
+
+    tcg_gen_subi_tl(regSP, regSP, 1);
+    tcg_gen_ext8u_tl(regSP, regSP);
+}
+
+
+static void gen_iRTS(void)
+{
+    tcg_gen_addi_tl(regSP, regSP, 1);
+    tcg_gen_ori_tl(regSP, regSP, 0x100);
+
+    tcg_gen_qemu_ld8u(regPC, regSP, 0);     // Low byte
+    tcg_gen_addi_tl(regSP, regSP, 1);
+    tcg_gen_ext8u_tl(regSP, regSP);
+    tcg_gen_ori_tl(regSP, regSP, 0x100);    // Fix the possible wrap-around...
+    tcg_gen_qemu_ld8u(regTMP, regSP, 0);    // High byte
+    tcg_gen_shli_tl(regTMP, regTMP, 8);
+    tcg_gen_or_tl(regPC, regPC, regTMP);
+
+    tcg_gen_ext8u_tl(regSP, regSP);
+
+    tcg_gen_addi_tl(regPC, regPC, 1);
+    tcg_gen_ext16u_tl(regPC, regPC);        // Truncate to 16 bits
+}
+
+
+
 
 
 
@@ -843,41 +952,20 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         /*
          * Calls and rets
          */
-        case iJSR: {
-            tcg_gen_ori_tl(regSP, regSP, 0x100);
-
-            tcg_gen_movi_tl(regTMP, (*paddr+1)>>8);
-            tcg_gen_qemu_st8(regTMP, regSP, 0);
-            tcg_gen_subi_tl(regSP, regSP, 1);
-            tcg_gen_ori_tl(regSP, regSP, 0x100);        // Fix the possible 8-bit wrap-around
-            tcg_gen_movi_tl(regTMP, (*paddr+1)&0xFF);
-            tcg_gen_qemu_st8(regTMP, regSP, 0);
-
-            tcg_gen_subi_tl(regSP, regSP, 1);
-            tcg_gen_ext8u_tl(regSP, regSP);
-
-            tcg_gen_movi_tl(regPC, getw_from_code(paddr)); // Jump to subroutine
+        case iJSR:  {
+            gen_PPC(*paddr+1);
+            tcg_gen_movi_tl(regPC, getw_from_code(paddr));
             return EXIT_PC_UPDATED;
         }
-
-        case iRTS: {
-            tcg_gen_addi_tl(regSP, regSP, 1);
-            tcg_gen_ori_tl(regSP, regSP, 0x100);
-
-            tcg_gen_qemu_ld8u(regPC, regSP, 0);     // Low byte
-            tcg_gen_addi_tl(regSP, regSP, 1);
-            tcg_gen_ext8u_tl(regSP, regSP);
-            tcg_gen_ori_tl(regSP, regSP, 0x100);    // Fix the possible wrap-around...
-            tcg_gen_qemu_ld8u(regTMP, regSP, 0);    // High byte
-            tcg_gen_shli_tl(regTMP, regTMP, 8);
-            tcg_gen_or_tl(regPC, regPC, regTMP);
-
-            tcg_gen_ext8u_tl(regSP, regSP);
-
-            tcg_gen_addi_tl(regPC, regPC, 1);
-            tcg_gen_ext16u_tl(regPC, regPC);        // Truncate to 16 bits
+        case iRTS:  gen_iRTS();                     return EXIT_PC_UPDATED;
+        case iBRK:  {
+            gen_PPC(*paddr);
+            gen_iPHP();
+            tcg_gen_movi_tl(regTMP, BRK_VEC);
+            tcg_gen_qemu_ld16u(regPC, regTMP, 0);
             return EXIT_PC_UPDATED;
         }
+        case iRTI:  gen_iPLP();     gen_iRTS();     return EXIT_PC_UPDATED;
 
         /*
          * Flags direct manipulations...
@@ -1195,70 +1283,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
         // TODO: Don't forget to change these when adding the remaining flags
         case iPHP: {
-            // Calculate flags register
-            int lbl_notZ = gen_new_label();
-            tcg_gen_shri_tl(regTMP, reg_last_res_CN, 8);     // Carry flag
-            tcg_gen_brcondi_tl(TCG_COND_NE, reg_last_res_Z, 0, lbl_notZ);    // Zero flag
-            tcg_gen_ori_tl(regTMP, regTMP, 0x02);
-            gen_set_label(lbl_notZ);
-            TCGv flags = tcg_temp_new();
-            gen_V_flag(flags);     // Overflow flag
-            tcg_gen_shri_tl(flags, flags, 1);
-            tcg_gen_or_tl(flags, flags, regTMP);
-            tcg_gen_andi_tl(regTMP, reg_last_res_CN, 0x80);     // Negative flag
-            tcg_gen_or_tl(flags, flags, regTMP);
-            tcg_gen_ori_tl(flags, flags, 0x30);     // Unused bit and Break flag = 1
-
-            // Apply D and I flags to the value being pushed
-            tcg_gen_andi_tl(regSR, regSR, 0x0C);    // Only D,I
-            tcg_gen_or_tl(flags, flags, regSR);
-
-            // Push flags register into the stack
-            tcg_gen_ori_tl(regSP, regSP, 0x100);
-            tcg_gen_qemu_st8(flags, regSP, 0);
-            tcg_gen_subi_tl(regSP, regSP, 0x100+1);
-            tcg_gen_ext8u_tl(regSP, regSP);
-
-            tcg_temp_free(flags);
-
+            gen_iPHP();
             return NO_EXIT;
         }
 
         case iPLP: {
-            // Get byte from top of the stack
-            tcg_gen_addi_tl(regSP, regSP, 1);
-            tcg_gen_ori_tl(regSP, regSP, 0x100);    // By doing the sum this way we ensure the instruction respects bounds
-            tcg_gen_qemu_ld8u(regTMP, regSP, 0);
-            tcg_gen_ext8u_tl(regSP, regSP);         // No need to do bounds cheking again
-
-            // Save the flags in register (this applies only to D,I flags)
-            tcg_gen_mov_tl(regSR, regTMP);
-
-            // Update the flags
-            int lbl_notV = gen_new_label();
-            int lbl_calcC = gen_new_label();
-            tcg_gen_mov_tl(reg_last_res_CN, regTMP);    // Negative
-            tcg_gen_andi_tl(reg_last_res_Z, regTMP, 0x02); // Zero
-            tcg_gen_xori_tl(reg_last_res_Z, reg_last_res_Z, 0x02);
-            tcg_gen_andi_tl(regTMP, regTMP, 0x41);      // Keep only V and C
-            tcg_gen_brcondi_tl(TCG_COND_LTU, regTMP, 0x40, lbl_notV);
-
-            // V == 1
-            tcg_gen_movi_tl(reg_last_op1_V, 0);
-            tcg_gen_movi_tl(reg_last_op2_V, 0);
-            tcg_gen_movi_tl(reg_last_res_V, 0xFF);
-            tcg_gen_br(lbl_calcC);
-
-            // V == 0
-            gen_set_label(lbl_notV);
-            tcg_gen_mov_tl(reg_last_op2_V, reg_last_res_V);
-
-            // Update the carry
-            gen_set_label(lbl_calcC);
-            tcg_gen_andi_tl(regTMP, regTMP, 0x01);
-            tcg_gen_shli_tl(regTMP, regTMP, 8);
-            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regTMP);
-
+            gen_iPLP();
             return NO_EXIT;
         }
 

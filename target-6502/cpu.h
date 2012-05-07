@@ -122,13 +122,6 @@ struct CPU6502State {
     uint8_t ps;
     uint8_t fen;
 
-    /* These pass data from the exception logic in the translator and
-       helpers to the OS entry point.  This is used for both system
-       emulation and user-mode.  */
-    uint64_t trap_arg0;
-    uint64_t trap_arg1;
-    uint64_t trap_arg2;
-
     /* Those resources are used only in Qemu core */
     CPU_COMMON
 
@@ -215,18 +208,13 @@ int cpu_6502_exec(CPU6502State *s);
 /* you can call this signal handler from your SIGBUS and SIGSEGV
    signal handlers to inform the virtual CPU of exceptions. non zero
    is returned if the signal was handled by the virtual CPU.  */
-int cpu_6502_signal_handler(int host_signum, void *pinfo,
-                             void *puc);
-int cpu_6502_handle_mmu_fault (CPUState *env, uint32_t address, int rw,
-                                int mmu_idx);
+int cpu_6502_signal_handler(int host_signum, void *pinfo, void *puc);
 #define cpu_handle_mmu_fault cpu_6502_handle_mmu_fault
 void do_interrupt (CPUState *env);
 
-#ifndef CONFIG_USER_ONLY
 QEMU_NORETURN void cpu_unassigned_access(CPUState *env1,
                                          target_phys_addr_t addr, int is_write,
                                          int is_exec, int unused, int size);
-#endif
 
 /* Bits in TB->FLAGS that control how translation is processed.  */
 enum {
@@ -261,21 +249,7 @@ static inline void cpu_get_tb_cpu_state(CPUState *env, target_ulong *pc,
     *pflags = flags;
 }
 
-#if defined(CONFIG_USER_ONLY)
-static inline void cpu_clone_regs(CPUState *env, target_ulong newsp)
-{
-    if (newsp) {
-        env->ir[IR_SP] = newsp;
-    }
-    env->ir[IR_V0] = 0;
-    env->ir[IR_A3] = 0;
-}
 
-static inline void cpu_set_tls(CPUState *env, target_ulong newtls)
-{
-    env->unique = newtls;
-}
-#endif
 
 static inline bool cpu_has_work(CPUState *env)
 {

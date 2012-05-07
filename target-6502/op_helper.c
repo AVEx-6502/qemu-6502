@@ -25,46 +25,7 @@
 #include "sysemu.h"
 #include "qemu-timer.h"
 
-#define FP_STATUS (env->fp_status)
 
-/* This should only be called from translate, via gen_excp.
-   We expect that ENV->PC has already been updated.  */
-void QEMU_NORETURN helper_excp(int excp, int error)
-{
-    env->exception_index = excp;
-    env->error_code = error;
-    cpu_loop_exit(env);
-}
-
-
-
-static void do_restore_state(void *retaddr)
-{
-    unsigned long pc = (unsigned long)retaddr;
-
-    if (pc) {
-        TranslationBlock *tb = tb_find_pc(pc);
-        if (tb) {
-            cpu_restore_state(tb, env, pc);
-        }
-    }
-}
-
-/* This may be called from any of the helpers to set up EXCEPTION_INDEX.  */
-static void QEMU_NORETURN dynamic_excp(int excp, int error)
-{
-    env->exception_index = excp;
-    env->error_code = error;
-    do_restore_state(GETPC());
-    cpu_loop_exit(env);
-}
-
-static void QEMU_NORETURN arith_excp(int exc, uint64_t mask)
-{
-    env->trap_arg0 = exc;
-    env->trap_arg1 = mask;
-    dynamic_excp(EXCP_ARITH, 0);
-}
 
 
 
@@ -137,48 +98,34 @@ void helper_shutdown (void)
 
 
 
+
+
+
+
+
+
+
+
+#define FP_STATUS (env->fp_status)
+
+/* This should only be called from translate, via gen_excp.
+   We expect that ENV->PC has already been updated.  */
+void QEMU_NORETURN helper_excp(int excp, int error)
+{
+    env->exception_index = excp;
+    env->error_code = error;
+    cpu_loop_exit(env);
+}
+
+
+
+
 /*****************************************************************************/
 /* Softmmu support */
-
-#if !defined (CONFIG_USER_ONLY)
-static void QEMU_NORETURN do_unaligned_access(target_ulong addr, int is_write,
-                                              int is_user, void *retaddr)
-{
-    uint64_t pc;
-    uint32_t insn;
-
-    printf("Unaligned access!\n");
-
-    do_restore_state(retaddr);
-
-    pc = env->pc;
-    insn = ldl_code(pc);
-
-    env->trap_arg0 = addr;
-    env->trap_arg1 = insn >> 26;                /* opcode */
-    env->trap_arg2 = (insn >> 21) & 31;         /* dest regno */
-    helper_excp(EXCP_UNALIGN, 0);
-
-}
-
-
-void QEMU_NORETURN cpu_unassigned_access(CPUState *env1,
-                                         target_phys_addr_t addr, int is_write,
-                                         int is_exec, int unused, int size)
-{
-
-    printf("Unassigned access!\n");
-
-    env = env1;
-    env->trap_arg0 = addr;
-    env->trap_arg1 = is_write;
-    dynamic_excp(EXCP_MCHK, 0);
-}
 
 #include "softmmu_exec.h"
 
 #define MMUSUFFIX _mmu
-#define ALIGNED_ONLY
 
 #define SHIFT 0
 #include "softmmu_template.h"
@@ -192,24 +139,20 @@ void QEMU_NORETURN cpu_unassigned_access(CPUState *env1,
 #define SHIFT 3
 #include "softmmu_template.h"
 
+
+
+
 /* try to fill the TLB and return an exception if error. If retaddr is
    NULL, it means that the function was called in C code (i.e. not
    from generated code or from helper.c) */
 /* XXX: fix it to restore all registers */
-void tlb_fill(CPUState *env1, target_ulong addr, int is_write, int mmu_idx,
+void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
               void *retaddr)
 {
-    CPUState *saved_env;
-    int ret;
-
-    saved_env = env;
+    CPUState *saved_env = env;
     env = env1;
-    ret = cpu_6502_handle_mmu_fault(env, addr, is_write, mmu_idx);
-    if (unlikely(ret != 0)) {
-        do_restore_state(retaddr);
-        /* Exception index and error code are already set */
-        cpu_loop_exit(env);
-    }
+    // There's no need for stupid cpu_6502_handle_mmu_fault function, because the 6502 has no MMU, so...
+    tlb_set_page(env, addr & TARGET_PAGE_MASK, addr & TARGET_PAGE_MASK,
+                     PAGE_READ | PAGE_WRITE | PAGE_EXEC, mmu_idx, TARGET_PAGE_SIZE);
     env = saved_env;
 }
-#endif

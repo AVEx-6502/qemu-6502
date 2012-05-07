@@ -31,13 +31,7 @@ target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
     return addr;
 }
 
-int cpu_6502_handle_mmu_fault(CPUState *env, target_ulong addr, int rw,
-                               int mmu_idx)
-{
-    tlb_set_page(env, addr & TARGET_PAGE_MASK, addr & TARGET_PAGE_MASK,
-                 PAGE_READ | PAGE_WRITE | PAGE_EXEC, mmu_idx, TARGET_PAGE_SIZE);
-    return 0;
-}
+
 
 void do_interrupt (CPUState *env)
 {

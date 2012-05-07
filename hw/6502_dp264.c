@@ -96,11 +96,6 @@ static void mos6502_init(ram_addr_t ram_size,
     cpu = cpu_init(NULL);
     cpu->pc = 0x1000;   // Address where to start execution
 
-
-    cpu->trap_arg0 = 0x10000;   //ram_size;
-    cpu->trap_arg1 = 0;
-    cpu->trap_arg2 = 1;
-
     MemoryRegion *address_space = get_system_memory();
 
     /*

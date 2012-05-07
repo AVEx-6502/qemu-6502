@@ -625,8 +625,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
                 tcg_gen_ext8u_tl(regAC, regAC);
 
                 // Carry flag
-                tcg_gen_andi_tl(hi, hi, 0x0100);
+                tcg_gen_setcondi_tl(TCG_COND_GEU, hi, hi, 0x0100);
+                tcg_gen_shli_tl(hi, hi, 8);
                 tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, hi);
+
                 tcg_temp_free(hi);
                 tcg_temp_free(lo);
             }
@@ -715,7 +717,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
                 tcg_gen_ext8u_tl(regAC, regAC);
 
                 // Carry flag
-                tcg_gen_andi_tl(hi, hi, 0x0100);
+                tcg_gen_setcondi_tl(TCG_COND_GEU, hi, hi, 0x0100);
+                tcg_gen_shli_tl(hi, hi, 8);
                 tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, hi);
 
                 tcg_temp_free(hi);
@@ -790,13 +793,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
                 tcg_gen_subi_tl(hi, hi, value & 0xF0);
 
                 // See if we need to adjust the low nibble
-                tcg_gen_brcondi_tl(TCG_COND_LTU, lo, 10, no_adjust_lo);
+                tcg_gen_brcondi_tl(TCG_COND_GE, lo, 0, no_adjust_lo);
                 tcg_gen_subi_tl(lo, lo, 6);
                 tcg_gen_subi_tl(hi, hi, 16);
                 gen_set_label(no_adjust_lo);
 
                 // See if we need to adjust the high nibble
-                tcg_gen_brcondi_tl(TCG_COND_LTU, hi, 0xA0, no_adjust_hi);
+                tcg_gen_brcondi_tl(TCG_COND_GE, hi, 0, no_adjust_hi);
                 tcg_gen_subi_tl(hi, hi, 0x60);
                 gen_set_label(no_adjust_hi);
 
@@ -880,13 +883,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
                 tcg_gen_sub_tl(hi, hi, tmp2);
 
                 // See if we need to adjust the low nibble
-                tcg_gen_brcondi_tl(TCG_COND_LTU, lo, 10, no_adjust_lo);
+                tcg_gen_brcondi_tl(TCG_COND_GE, lo, 0, no_adjust_lo);
                 tcg_gen_subi_tl(lo, lo, 6);
                 tcg_gen_subi_tl(hi, hi, 16);
                 gen_set_label(no_adjust_lo);
 
                 // See if we need to adjust the high nibble
-                tcg_gen_brcondi_tl(TCG_COND_LTU, hi, 0xA0, no_adjust_hi);
+                tcg_gen_brcondi_tl(TCG_COND_GE, hi, 0, no_adjust_hi);
                 tcg_gen_subi_tl(hi, hi, 0x60);
                 gen_set_label(no_adjust_hi);
 

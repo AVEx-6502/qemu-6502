@@ -112,7 +112,6 @@ static void mos6502_init(ram_addr_t ram_size,
      * $FE00 - $FEFF  |     I/O       |     256 bytes
      * $FF00 - $FFFF  |     RAM       |     256 bytes
      */
-#if 1
 
     // RAM
     MemoryRegion *ram1 = g_new(MemoryRegion, 1);
@@ -123,7 +122,7 @@ static void mos6502_init(ram_addr_t ram_size,
     // ROM
     MemoryRegion *rom = g_new(MemoryRegion, 1);
     memory_region_init_ram(rom, "6502.rom", 0x1FFF - 0x1000 + 1);
-//    memory_region_set_readonly(rom, true);
+    memory_region_set_readonly(rom, true);
     vmstate_register_ram_global(rom);
     memory_region_add_subregion(address_space, 0x1000, rom);
 
@@ -145,15 +144,7 @@ static void mos6502_init(ram_addr_t ram_size,
     memory_region_add_subregion(address_space, 0xFF00, ram3);
 
 
-#else
 
-    // RAM
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
-    memory_region_init_ram(ram, "6502.ram", 0x10000);
-    vmstate_register_ram_global(ram);
-    memory_region_add_subregion(address_space, 0x0000, ram);
-
-#endif
 
 
     // Load ROM
@@ -201,7 +192,7 @@ static void mos6502_init(ram_addr_t ram_size,
 
 
 static QEMUMachine mos6502_machine = {
-    .name = "mos6502",
+    .name = "mos6502_dummy",
     .desc = "MOS 6502 CPU",
     .init = mos6502_init,
     .max_cpus = 1,

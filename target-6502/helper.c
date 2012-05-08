@@ -24,14 +24,10 @@
 #include "cpu.h"
 #include "softfloat.h"
 
-
-
 target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 {
     return addr;
 }
-
-
 
 void do_interrupt (CPUState *env)
 {
@@ -41,27 +37,17 @@ void do_interrupt (CPUState *env)
 void cpu_dump_state (CPUState *env, FILE *f, fprintf_function cpu_fprintf,
                      int flags)
 {
-    cpu_fprintf(f, "     PC  " TARGET_FMT_lx "      PS  %02x\n",
-                env->pc, env->ps);
-
-    cpu_fprintf(f, "     AC  " TARGET_FMT_lx "      X   " TARGET_FMT_lx "\n",
-                env->ac, env->x);
-
-    cpu_fprintf(f, "     Y   " TARGET_FMT_lx "      SR  " TARGET_FMT_lx "\n",
-                env->y, env->sr);
-
-    cpu_fprintf(f, "     SP  " TARGET_FMT_lx "\n", env->sp);
-
+    cpu_fprintf(f, "     AC  " TARGET_FMT_lx "\n",                              env->ac);
+    cpu_fprintf(f, "      X  " TARGET_FMT_lx "       Y  " TARGET_FMT_lx "\n",   env->x, env->y);
+    cpu_fprintf(f, "     SP  " TARGET_FMT_lx "      PC  " TARGET_FMT_lx "\n",   env->sp, env->pc);
+    cpu_fprintf(f, "     SR  " TARGET_FMT_lx "\n",                              env->sr);
     cpu_fprintf(f, "\n");
-
-
+/*
     cpu_fprintf(f, "     LAST_RES_CN  " TARGET_FMT_lx "      LAST_RES_Z  " TARGET_FMT_lx "\n",
                     env->last_res_CN, env->last_res_Z);
-
     cpu_fprintf(f, "     LAST_OP1_V   " TARGET_FMT_lx "      LAST_OP2_V  " TARGET_FMT_lx "\n",
                     env->last_op1_V, env->last_op2_V);
-
     cpu_fprintf(f, "     LAST_RES_V   " TARGET_FMT_lx "\n", env->last_res_V);
-
     cpu_fprintf(f, "\n");
+*/
 }

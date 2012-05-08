@@ -14,6 +14,4 @@ DEF_HELPER_2(printstuff, void, i32, i32)
 
 DEF_HELPER_2(excp, void, int, int)
 
-
-
 #include "def-helper.h"

@@ -20,10 +20,6 @@
 #if !defined (__CPU_6502_H__)
 #define __CPU_6502_H__
 
-
-
-
-
 #include "config.h"
 #include "qemu-common.h"
 
@@ -38,58 +34,16 @@
 #define CPUState struct CPU6502State
 
 #include "cpu-defs.h"
-
 #include "softfloat.h"
-
-#define TARGET_HAS_ICE 1
-
-#define ELF_MACHINE     EM_NONE
-
-#define ICACHE_LINE_SIZE 32
-#define DCACHE_LINE_SIZE 32
-
 
 #define TARGET_PAGE_BITS 7
 #define TARGET_PHYS_ADDR_SPACE_BITS 32
 #define TARGET_VIRT_ADDR_SPACE_BITS 32
 
-
-enum {
-    AMASK_BWX      = 0x00000001,
-    AMASK_FIX      = 0x00000002,
-    AMASK_CIX      = 0x00000004,
-    AMASK_MVI      = 0x00000100,
-    AMASK_TRAP     = 0x00000200,
-    AMASK_PREFETCH = 0x00001000,
-};
-
-
 /* MMU modes definitions */
-
-/* Alpha has 5 MMU modes: PALcode, kernel, executive, supervisor, and user.
-   The Unix PALcode only exposes the kernel and user modes; presumably
-   executive and supervisor are used by VMS.
-
-   PALcode itself uses physical mode for code and kernel mode for data;
-   there are PALmode instructions that can access data via physical mode
-   or via an os-installed "alternate mode", which is one of the 4 above.
-
-   QEMU does not currently properly distinguish between code/data when
-   looking up addresses.  To avoid having to address this issue, our
-   emulated PALcode will cheat and use the KSEG mapping for its code+data
-   rather than physical addresses.
-
-   Moreover, we're only emulating Unix PALcode, and not attempting VMS.
-
-   All of which allows us to drop all but kernel and user modes.
-   Elide the unused MMU modes to save space.  */
-
 #define NB_MMU_MODES 2
-
 #define MMU_MODE0_SUFFIX _kernel
-#define MMU_MODE1_SUFFIX _user
 #define MMU_KERNEL_IDX   0
-#define MMU_USER_IDX     1
 
 typedef struct CPU6502State CPU6502State;
 
@@ -100,14 +54,13 @@ struct CPU6502State {
     uint32_t    x;
     uint32_t    y;
 
-    uint32_t    sp;
+    uint32_t    sp; // Stack pointer
     uint32_t    sr;     // These are the flags: NV-BDIZC
                         //  (note that only D,I are kept here; B is a ghost flag
                         //   that is generated only by events that put the flags
                         //   in the stack, and is only 1 for PHP)
 
     uint32_t    pc;
-
 
     uint32_t    tmp;
     uint32_t    last_res_CN;   // result of last operation, used to compute C and N flags
@@ -117,17 +70,10 @@ struct CPU6502State {
     uint32_t    last_res_V;
 
 
-    /* The Internal Processor Registers.  Some of these we assume always
-       exist for use in user-mode.  */
-    uint8_t ps;
-    uint8_t fen;
-
     /* Those resources are used only in Qemu core */
     CPU_COMMON
 
     int error_code;
-
-    uint32_t amask;
 };
 
 #define BRK_VEC 0xFFFE
@@ -150,58 +96,10 @@ enum flag_masks {
 
 #include "cpu-all.h"
 
-enum {
-    FEATURE_ASN    = 0x00000001,
-    FEATURE_SPS    = 0x00000002,
-    FEATURE_VIRBND = 0x00000004,
-    FEATURE_TBCHK  = 0x00000008,
-};
-
-
-enum {
-    EXCP_RESET,
-    EXCP_MCHK,
-    EXCP_SMP_INTERRUPT,
-    EXCP_CLK_INTERRUPT,
-    EXCP_DEV_INTERRUPT,
-    EXCP_MMFAULT,
-    EXCP_UNALIGN,
-    EXCP_OPCDEC,
-    EXCP_ARITH,
-    EXCP_FEN,
-    EXCP_CALL_PAL,
-    /* For Usermode emulation.  */
-    EXCP_STL_C,
-    EXCP_STQ_C,
-};
-
-
-
-/* Alpha-specific interrupt pending bits.  */
-#define CPU_INTERRUPT_TIMER CPU_INTERRUPT_TGT_EXT_0
-#define CPU_INTERRUPT_SMP   CPU_INTERRUPT_TGT_EXT_1
-#define CPU_INTERRUPT_MCHK  CPU_INTERRUPT_TGT_EXT_2
-
-
-/* Processor status constants.  */
-enum {
-    /* Low 3 bits are interrupt mask level.  */
-    PS_INT_MASK = 7,
-
-    /* Bits 4 and 5 are the mmu mode.  The VMS PALcode uses all 4 modes;
-       The Unix PALcode only uses bit 4.  */
-    PS_USER_MODE = 8
-};
-
 static inline int cpu_mmu_index(CPUState *env)
 {
-    if (env->ps & PS_USER_MODE) {
-        return MMU_USER_IDX;
-    } else {
-        return MMU_KERNEL_IDX;
-    }
+    return MMU_KERNEL_IDX;
 }
-
 
 CPU6502State * cpu_6502_init (const char *cpu_model);
 int cpu_6502_exec(CPU6502State *s);
@@ -216,54 +114,35 @@ QEMU_NORETURN void cpu_unassigned_access(CPUState *env1,
                                          target_phys_addr_t addr, int is_write,
                                          int is_exec, int unused, int size);
 
-/* Bits in TB->FLAGS that control how translation is processed.  */
-enum {
-    TB_FLAGS_PAL_MODE = 1,
-    TB_FLAGS_FEN = 2,
-    TB_FLAGS_USER_MODE = 8,
-
-    TB_FLAGS_AMASK_SHIFT = 4,
-    TB_FLAGS_AMASK_BWX = AMASK_BWX << TB_FLAGS_AMASK_SHIFT,
-    TB_FLAGS_AMASK_FIX = AMASK_FIX << TB_FLAGS_AMASK_SHIFT,
-    TB_FLAGS_AMASK_CIX = AMASK_CIX << TB_FLAGS_AMASK_SHIFT,
-    TB_FLAGS_AMASK_MVI = AMASK_MVI << TB_FLAGS_AMASK_SHIFT,
-    TB_FLAGS_AMASK_TRAP = AMASK_TRAP << TB_FLAGS_AMASK_SHIFT,
-    TB_FLAGS_AMASK_PREFETCH = AMASK_PREFETCH << TB_FLAGS_AMASK_SHIFT,
-};
-
 static inline void cpu_get_tb_cpu_state(CPUState *env, target_ulong *pc,
                                         target_ulong *cs_base, int *pflags)
 {
-    int flags = 0;
-
     *pc = env->pc;
     *cs_base = 0;
 
-    flags = env->ps & PS_USER_MODE;
+    unsigned c = ((env->last_res_CN&0xFF00) != 0);
+    unsigned z = (env->last_res_Z == 0);
+    //unsigned i;
+    //unsigned d
+    //unsigned b;
+    //unsigned unu;
+    unsigned v = (env->last_op1_V ^ ~env->last_op2_V) & (env->last_op1_V ^ env->last_res_V) & 0x80;
+    unsigned n = ((env->last_res_CN&0x80) != 0);
 
-    if (env->fen) {
-        flags |= TB_FLAGS_FEN;
-    }
-    flags |= env->amask << TB_FLAGS_AMASK_SHIFT;
-
-    *pflags = flags;
+    *pflags = c << 0
+            | z << 1
+            | (env->sr & (flagI|flagD))
+            | flagB
+            | flagUNU
+            | v << 6
+            | n << 7;
 }
 
 
 
 static inline bool cpu_has_work(CPUState *env)
 {
-    /* Here we are checking to see if the CPU should wake up from HALT.
-       We will have gotten into this state only for WTINT from PALmode.  */
-    /* ??? I'm not sure how the IPL state works with WTINT to keep a CPU
-       asleep even if (some) interrupts have been asserted.  For now,
-       assume that if a CPU really wants to stay asleep, it will mask
-       interrupts at the chipset level, which will prevent these bits
-       from being set in the first place.  */
-    return env->interrupt_request & (CPU_INTERRUPT_HARD
-                                     | CPU_INTERRUPT_TIMER
-                                     | CPU_INTERRUPT_SMP
-                                     | CPU_INTERRUPT_MCHK);
+    return 1;
 }
 
 #include "exec-all.h"

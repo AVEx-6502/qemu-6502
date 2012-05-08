@@ -35,37 +35,26 @@
 #  define LOG_DISAS(...) do { } while (0)
 #endif
 
-typedef struct DisasContext DisasContext;
-struct DisasContext {
+typedef struct DisasContext {
     struct TranslationBlock *tb;
     CPU6502State *env;
     uint32_t pc;
-    int mem_idx;
-
-    /* Current rounding mode for this TB.  */
-    int tb_rm;
-    /* Current flush-to-zero setting for this TB.  */
-    int tb_ftz;
-};
+} DisasContext;
 
 /* Return values from translate_one, indicating the state of the TB.
    Note that zero indicates that we are not exiting the TB.  */
 
 typedef enum {
     NO_EXIT,
-
     /* We have emitted one or more goto_tb.  No fixup required.  */
     EXIT_GOTO_TB,
-
     /* We are not using a goto_tb (for whatever reason), but have updated
        the PC (for whatever reason), so there's no need to do it again on
        exiting the TB.  */
     EXIT_PC_UPDATED,
-
     /* We are exiting the TB, but have neither emitted a goto_tb, nor
        updated the PC for the next instruction to be executed.  */
     EXIT_PC_STALE,
-
     /* We are ending the TB with a noreturn function call, e.g. longjmp.
        No following code will be executed.  */
     EXIT_NORETURN,
@@ -97,8 +86,7 @@ static void cpu6502_translate_init(void)
 {
     static int done_init = 0;
 
-    if (done_init)
-        return;
+    if (done_init) return;
 
     cpu_env = tcg_global_reg_new_ptr(TCG_AREG0, "env");
 
@@ -106,16 +94,13 @@ static void cpu6502_translate_init(void)
     regAC = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, ac), "AC");
     regX  = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState,  x),  "X");
     regY  = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState,  y),  "Y");
-
     regSR = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sr), "SR");
     regSP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, sp), "SP");
-
-    regPC = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, pc), "pc");
+    regPC = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, pc), "PC");
 
     regTMP = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, tmp), "TMP");
     reg_last_res_CN = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_res_CN), "LAST_RES_CN");
     reg_last_res_Z = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_res_Z), "LAST_RES_Z");
-
     reg_last_op1_V = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_op1_V), "LAST_OP1_V");
     reg_last_op2_V = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_op2_V), "LAST_OP2_V");
     reg_last_res_V = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, last_res_V), "LAST_RES_V");
@@ -123,7 +108,6 @@ static void cpu6502_translate_init(void)
     /* register helpers */
 #define GEN_HELPER 2
 #include "helper.h"
-
     done_init = 1;
 }
 
@@ -144,11 +128,6 @@ static ExitStatus gen_excp(DisasContext *ctx, int exception, int error_code)
     gen_excp_1(exception, error_code);
     return EXIT_NORETURN;
 }
-
-
-
-
-
 
 enum opcode {
     iADC_imm=0x69, iADC_abs=0x6D, iADC_zpg=0x65, iADC_Xind=0x61, iADC_indY=0x71, iADC_zpgX=0x75, iADC_absX=0x7D, iADC_absY=0x79,
@@ -320,7 +299,6 @@ static void gen_V_flag(TCGv reg) {
     tcg_temp_free(temp);
     tcg_gen_andi_tl(reg, reg, 0x80);
 }
-
 
 
 
@@ -1339,11 +1317,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
     }
 }
 
-
-
-static inline void gen_intermediate_code_internal(CPUState *env,
-                                                  TranslationBlock *tb,
-                                                  int search_pc)
+static inline void gen_intermediate_code_internal(CPUState *env, TranslationBlock *tb, int search_pc)
 {
     DisasContext ctx, *ctxp = &ctx;
     target_ulong pc_start;
@@ -1360,17 +1334,6 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     ctx.tb = tb;
     ctx.env = env;
     ctx.pc = pc_start;
-    ctx.mem_idx = cpu_mmu_index(env);
-
-    /* ??? Every TB begins with unset rounding mode, to be initialized on
-       the first fp insn of the TB.  Alternately we could define a proper
-       default for every TB (e.g. QUAL_RM_N or QUAL_RM_D) and make sure
-       to reset the FP_STATUS to that default at the end of any TB that
-       changes the default.  We could even (gasp) dynamiclly figure out
-       what default would be most efficient given the running program.  */
-    ctx.tb_rm = -1;
-    /* Similarly for flush-to-zero.  */
-    ctx.tb_ftz = -1;
 
     num_insns = 0;
     max_insns = tb->cflags & CF_COUNT_MASK;
@@ -1474,8 +1437,7 @@ void gen_intermediate_code_pc (CPUState *env, struct TranslationBlock *tb)
 }
 
 
-
-CPU6502State * cpu_6502_init (const char *cpu_model)
+CPU6502State *cpu_6502_init (const char *cpu_model)
 {
     CPU6502State *env;
 
@@ -1487,14 +1449,7 @@ CPU6502State * cpu_6502_init (const char *cpu_model)
     env->sr = 0x20;       // Flag in bit 5 is always 1
     env->last_res_Z = 1;  // CPU must start with flag Z set to 0, so this can't be 0
 
-    /* Default to ev67; no reason not to emulate insns by default.  */
-    env->amask = (AMASK_BWX | AMASK_FIX | AMASK_CIX | AMASK_MVI
-             | AMASK_TRAP | AMASK_PREFETCH);
 
-#if defined (CONFIG_USER_ONLY)
-    env->ps = PS_USER_MODE;
-#endif
-    env->fen = 1;
 
     qemu_init_vcpu(env);
     return env;

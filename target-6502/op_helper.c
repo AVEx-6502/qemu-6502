@@ -137,6 +137,7 @@ void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
 void do_interrupt (CPUState *env)
 {
     fprintf(stderr, "Interrupt happened!\n");
+
     // Converting to unsigned to avoid rounding errors. Strictly
     //  speaking, as per the standard, int number are at least
     //  16 bits. In the 6502 adresses are 16-bits too.

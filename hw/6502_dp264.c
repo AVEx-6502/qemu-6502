@@ -24,6 +24,9 @@
 #define TIMER_READ_ADDR     0x02
 #define TIMER_WRITE_ADDR    0x02
 
+#define TIMER_CALL_ADDR     0xFF00
+
+static CPUState *cpu;
 static CharDriverState *console;
 
 static int can_read_handler(void *opaque)
@@ -43,8 +46,8 @@ static void read_handler(void *opaque, const uint8_t* data, int datalen)
 
 static void timer_callback(void)
 {
-    // TODO: Send interrupt
-    printf("TIMER INTERRUPT!\n");
+    cpu->exception_index = TIMER_CALL_ADDR;
+    cpu_interrupt(cpu, CPU_INTERRUPT_HARD);
 }
 
 
@@ -56,9 +59,11 @@ static uint64_t io_read(void *opaque, target_phys_addr_t addr, unsigned size)
         case KEYB_READ_ADDR:
             return read_char();
             break;
+
         case TIMER_READ_ADDR:
             return get_timer_value();
             break;
+
         default:
             fprintf(stderr, "Reading IO address %llu.\n", (unsigned long long)addr);
             break;
@@ -123,8 +128,6 @@ static void mos6502_init(ram_addr_t ram_size,
                          const char *initrd_filename,
                          const char *cpu_model)
 {
-    CPUState *cpu;
-
     cpu = cpu_init(NULL);
     cpu->pc = 0x1000;   // Address where to start execution
 

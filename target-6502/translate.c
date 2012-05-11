@@ -232,13 +232,11 @@ static inline uint32_t gen_zero_page_Y_mode_addr(TCGv reg, uint32_t code_addr) {
  * The function uses the same register for all intermediate values...
  */
 static inline uint32_t gen_indirect_X_addr(TCGv reg, uint32_t code_addr) {   // [X+code_addr] (2 bytes)
-    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
     code_addr = gen_zero_page_X_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld16u(reg, reg, 0);
     return code_addr;
 }
 static uint32_t gen_Y_indirect_addr(TCGv reg, uint32_t code_addr) {  // [code_addr]+Y (2 bytes)
-    // FIXME: When X+code_addr is 0xFF we should return 0xFF 0x00, currently 0xFF 0x100 is being returned.
     code_addr = gen_zero_page_mode_addr(reg, code_addr);
     tcg_gen_qemu_ld16u(reg, reg, 0);
     tcg_gen_add_tl(reg, reg, regY);     // Add Y
@@ -1261,7 +1259,6 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             return NO_EXIT;
         }
 
-        // TODO: Don't forget to change these when adding the remaining flags
         case iPHP: {
             gen_iPHP();
             return NO_EXIT;

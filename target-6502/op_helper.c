@@ -156,5 +156,7 @@ void do_interrupt (CPUState *env)
     stb_kernel(env->sp--, calc_6502_flags(env) & 0xFF);
 
     env->pc = routine_addr;
+    env->exception_index = -1;
+
 }
 

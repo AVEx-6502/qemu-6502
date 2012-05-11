@@ -43,7 +43,7 @@
 #define TARGET_VIRT_ADDR_SPACE_BITS 32
 
 /* MMU modes definitions */
-#define NB_MMU_MODES 2
+#define NB_MMU_MODES 1
 #define MMU_MODE0_SUFFIX _kernel
 #define MMU_KERNEL_IDX   0
 

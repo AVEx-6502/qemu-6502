@@ -310,10 +310,10 @@ int cpu_exec(CPUState *env)
                             do_interrupt_x86_hardirq(env, EXCP12_MCHK, 0);
                             next_tb = 0;
                         } else if ((interrupt_request & CPU_INTERRUPT_HARD) &&
-                                   (((env->hflags2 & HF2_VINTR_MASK) && 
+                                   (((env->hflags2 & HF2_VINTR_MASK) &&
                                      (env->hflags2 & HF2_HIF_MASK)) ||
-                                    (!(env->hflags2 & HF2_VINTR_MASK) && 
-                                     (env->eflags & IF_MASK && 
+                                    (!(env->hflags2 & HF2_VINTR_MASK) &&
+                                     (env->eflags & IF_MASK &&
                                       !(env->hflags & HF_INHIBIT_IRQ_MASK))))) {
                             int intno;
                             svm_check_intercept(env, SVM_EXIT_INTR);
@@ -326,7 +326,7 @@ int cpu_exec(CPUState *env)
                             next_tb = 0;
 #if !defined(CONFIG_USER_ONLY)
                         } else if ((interrupt_request & CPU_INTERRUPT_VIRQ) &&
-                                   (env->eflags & IF_MASK) && 
+                                   (env->eflags & IF_MASK) &&
                                    !(env->hflags & HF_INHIBIT_IRQ_MASK)) {
                             int intno;
                             /* FIXME: this should respect TPR */
@@ -494,6 +494,11 @@ int cpu_exec(CPUState *env)
 #elif defined(TARGET_XTENSA)
                     if (interrupt_request & CPU_INTERRUPT_HARD) {
                         env->exception_index = EXC_IRQ;
+                        do_interrupt(env);
+                        next_tb = 0;
+                    }
+#elif defined(TARGET_6502)
+                    if(env->interrupt_request & CPU_INTERRUPT_HARD) {
                         do_interrupt(env);
                         next_tb = 0;
                     }

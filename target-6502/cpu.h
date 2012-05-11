@@ -20,6 +20,8 @@
 #if !defined (__CPU_6502_H__)
 #define __CPU_6502_H__
 
+#define DEBUG_6502
+
 #include "config.h"
 #include "qemu-common.h"
 
@@ -114,12 +116,9 @@ QEMU_NORETURN void cpu_unassigned_access(CPUState *env1,
                                          target_phys_addr_t addr, int is_write,
                                          int is_exec, int unused, int size);
 
-static inline void cpu_get_tb_cpu_state(CPUState *env, target_ulong *pc,
-                                        target_ulong *cs_base, int *pflags)
-{
-    *pc = env->pc;
-    *cs_base = 0;
 
+static inline int calc_6502_flags(CPUState *env)
+{
     unsigned c = ((env->last_res_CN&0xFF00) != 0);
     unsigned z = (env->last_res_Z == 0);
     //unsigned i;
@@ -129,13 +128,22 @@ static inline void cpu_get_tb_cpu_state(CPUState *env, target_ulong *pc,
     unsigned v = (env->last_op1_V ^ ~env->last_op2_V) & (env->last_op1_V ^ env->last_res_V) & 0x80;
     unsigned n = ((env->last_res_CN&0x80) != 0);
 
-    *pflags = c << 0
+    return    c << 0
             | z << 1
             | (env->sr & (flagI|flagD))
             | flagB
             | flagUNU
             | v << 6
             | n << 7;
+}
+
+static inline void cpu_get_tb_cpu_state(CPUState *env, target_ulong *pc,
+                                        target_ulong *cs_base, int *pflags)
+{
+    *pc = env->pc;
+    *cs_base = 0;
+
+    *pflags = calc_6502_flags(env);
 }
 
 

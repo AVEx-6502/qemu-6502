@@ -1276,8 +1276,8 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
 
 
-
-        // These are phony instructions to work with the terminal...
+#ifdef DEBUG_6502
+        // These are phony instructions to help debugging...
         case 0xAF:
             gen_helper_printnum(reg_last_res_Z);
             tcg_gen_movi_tl(regTMP, ' ');
@@ -1302,7 +1302,6 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case 0x0F:  // Shutdown VM
             gen_helper_shutdown();
             return EXIT_PC_STALE;
-
         default:
         {
             TCGv_i32 tmp = tcg_temp_new_i32();
@@ -1314,6 +1313,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_temp_free_i32(tmp);
             return EXIT_PC_STALE;
         }
+#else
+        default: {
+            // Ignore non-defined instructions.
+            return NO_EXIT;
+        }
+#endif
     }
 }
 

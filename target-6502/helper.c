@@ -29,10 +29,7 @@ target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
     return addr;
 }
 
-void do_interrupt (CPUState *env)
-{
-    fprintf(stderr, "Interrupt happened!\n");
-}
+
 
 void cpu_dump_state (CPUState *env, FILE *f, fprintf_function cpu_fprintf,
                      int flags)

@@ -25,6 +25,14 @@
 #include "sysemu.h"
 #include "qemu-timer.h"
 
+
+
+
+
+
+
+// Helpers for fake test instructions
+#ifdef DEBUG_6502
 void helper_printstuff (uint32_t addr, uint32_t instruction)
 {
     fprintf(stderr, "\nNao implementado: addr=0x%"PRIX32", insn=0x%"PRIX32"!\n", addr, instruction);
@@ -44,8 +52,6 @@ void helper_printnum (uint32_t num)
     fprintf(stdout, "%"PRIu32, num); fflush(stdout);
 }
 
-
-
 #include <termios.h>
 #include <unistd.h>
 #define fatal(ARG)  {fprintf(stderr, ARG); exit(-1);}
@@ -64,16 +70,10 @@ target_ulong helper_getchar (void)
 
         if (tcsetattr(STDIN_FILENO,TCSANOW,&raw) < 0) fatal("can't set raw mode");
     }
-
     char ret;
     read(STDIN_FILENO, &ret, 1);
-    //fscanf(stdin, "%*s");
-    //fscanf(stdin, "%c", &ret);
-
-    if (isatty(STDIN_FILENO)) {
+    if (isatty(STDIN_FILENO))
         if (tcsetattr(STDIN_FILENO,TCSANOW,&saved) < 0) fatal("can't restore old terminal mode");
-    }
-
     return ret;
 }
 
@@ -89,7 +89,7 @@ void helper_shutdown (void)
     fprintf(stdout, "\n"); fflush(stdout);
     exit(0);
 }
-
+#endif
 
 
 /* Helper to call exceptions from generated code.
@@ -101,9 +101,8 @@ void QEMU_NORETURN helper_excp(int excp, int error)
     cpu_loop_exit(env);
 }
 
-
 /*****************************************************************************/
-/* Softmmu support */
+/*   Softmmu support                                                         */
 
 #include "softmmu_exec.h"
 
@@ -118,7 +117,6 @@ void QEMU_NORETURN helper_excp(int excp, int error)
 #define SHIFT 3
 #include "softmmu_template.h"
 
-
 void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
               void *retaddr)
 {
@@ -129,3 +127,33 @@ void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
                      PAGE_READ | PAGE_WRITE | PAGE_EXEC, mmu_idx, TARGET_PAGE_SIZE);
     env = saved_env;
 }
+
+
+
+
+
+// Interrupt stuff
+
+void do_interrupt (CPUState *env)
+{
+    fprintf(stderr, "Interrupt happened!\n");
+    // Converting to unsigned to avoid rounding errors. Strictly
+    //  speaking, as per the standard, int number are at least
+    //  16 bits. In the 6502 adresses are 16-bits too.
+    // NOTE: we are threating the index as the address at which
+    //  the handler's adress will be peeked. This is not exactly
+    //  like it would happen in a real proccessor.
+    unsigned int interrupt_index = env->exception_index;
+
+    // Read the hendler's address
+    unsigned int routine_addr = lduw_kernel(interrupt_index);
+
+    // Put the return address in the stack
+    stb_kernel(env->sp--, (env->pc >> 8) & 0xFF);  // High word
+    stb_kernel(env->sp--, (env->pc >> 0) & 0xFF);  // Low  word
+    // Put the flags in the stack
+    stb_kernel(env->sp--, calc_6502_flags(env) & 0xFF);
+
+    env->pc = routine_addr;
+}
+

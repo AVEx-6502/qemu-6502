@@ -149,8 +149,8 @@ void do_interrupt (CPUState *env)
     unsigned int routine_addr = lduw_kernel(interrupt_index);
 
     // Put the return address in the stack
-    stb_kernel(env->sp--, (env->pc >> 8) & 0xFF);  // High word
-    stb_kernel(env->sp--, (env->pc >> 0) & 0xFF);  // Low  word
+    stb_kernel((env->sp--)+0x100, (env->pc >> 8) & 0xFF);  // High word
+    stb_kernel((env->sp--)+0x100, (env->pc >> 0) & 0xFF);  // Low  word
     // Put the flags in the stack
     stb_kernel(env->sp--, calc_6502_flags(env) & 0xFF);
 

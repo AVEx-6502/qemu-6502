@@ -13,8 +13,16 @@
 #include "qemu-option.h"
 #include "qemu-char.h"
 #include "6502_keyboard.h"
+#include "6502_timer.h"
 
 #define BIOS_FILENAME      "6502_bios.rom"
+
+// NOTE: I/O addresses are relative to start of I/O region
+#define KEYB_READ_ADDR      0x00
+#define SCREEN_WRITE_ADDR   0x00
+#define CON_ECHO_WRITE_ADDR 0x01
+#define TIMER_READ_ADDR     0x02
+#define TIMER_WRITE_ADDR    0x02
 
 static CharDriverState *console;
 
@@ -23,7 +31,7 @@ static int can_read_handler(void *opaque)
     return 1;
 }
 
-// This is called when a key pressed by the user is delivered to out console
+// This is called when a key pressed by the user is delivered to our console
 static void read_handler(void *opaque, const uint8_t* data, int datalen)
 {
     int i;
@@ -33,13 +41,27 @@ static void read_handler(void *opaque, const uint8_t* data, int datalen)
 }
 
 
+static void timer_callback(void)
+{
+    // TODO: Send interrupt
+    printf("TIMER INTERRUPT!\n");
+}
+
+
+
 
 static uint64_t io_read(void *opaque, target_phys_addr_t addr, unsigned size)
 {
-    if(addr == 0x00) {  // addr is relative to start of memory region
-        return read_char();
-    } else {
-        fprintf(stderr, "Reading IO address %llu.\n", (unsigned long long)addr);
+    switch(addr) {
+        case KEYB_READ_ADDR:
+            return read_char();
+            break;
+        case TIMER_READ_ADDR:
+            return get_timer_value();
+            break;
+        default:
+            fprintf(stderr, "Reading IO address %llu.\n", (unsigned long long)addr);
+            break;
     }
 
     return 0;
@@ -48,17 +70,28 @@ static uint64_t io_read(void *opaque, target_phys_addr_t addr, unsigned size)
 
 static void io_write(void *opaque, target_phys_addr_t addr, uint64_t value, unsigned size)
 {
-    if(addr == 0x00) {  // addr is relative to start of memory region
-        uint8_t c = (uint8_t)value;
-        qemu_chr_fe_write(console, (uint8_t*)&c, 1);
-        if(c == '\n') {
-            c = '\r';
+    uint8_t c;
+    switch(addr) {
+        case SCREEN_WRITE_ADDR:
+            c = (uint8_t)value;
             qemu_chr_fe_write(console, (uint8_t*)&c, 1);
-        }
-    } else if(addr == 0x01) {   // enable or disable console echo
-        qemu_chr_fe_set_echo(console, (value != 0));
-    } else {
-        fprintf(stderr, "Writting %llu in IO address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
+            if(c == '\n') {
+                c = '\r';
+                qemu_chr_fe_write(console, (uint8_t*)&c, 1);
+            }
+            break;
+
+        case CON_ECHO_WRITE_ADDR:   // enable or disable console echo
+            qemu_chr_fe_set_echo(console, (value != 0));
+            break;
+
+        case TIMER_WRITE_ADDR:
+            set_timer_value(value);
+            break;
+
+        default:
+            fprintf(stderr, "Writting %llu in IO address %llu.\n", (unsigned long long)value, (unsigned long long)addr);
+            break;
     }
 }
 
@@ -92,7 +125,6 @@ static void mos6502_init(ram_addr_t ram_size,
 {
     CPUState *cpu;
 
-    // TODO: Clean this after changing CPUState struct
     cpu = cpu_init(NULL);
     cpu->pc = 0x1000;   // Address where to start execution
 
@@ -139,9 +171,6 @@ static void mos6502_init(ram_addr_t ram_size,
     memory_region_add_subregion(address_space, 0xFF00, ram3);
 
 
-
-
-
     // Load ROM
     if(bios_name == NULL) {
         bios_name = BIOS_FILENAME;
@@ -181,6 +210,7 @@ static void mos6502_init(ram_addr_t ram_size,
     qemu_chr_add_handlers(console, can_read_handler, read_handler, NULL, NULL);
 
     init_keyboard();
+    init_timer(&timer_callback);
 
 }
 

@@ -134,8 +134,12 @@ void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
 
 // Interrupt stuff
 
-void do_interrupt (CPUState *env)
+void do_interrupt (CPUState *env1)
 {
+    CPUState *saved_env;
+    saved_env = env;
+    env = env1;
+
     fprintf(stderr, "Interrupt happened!\n");
 
     // Converting to unsigned to avoid rounding errors. Strictly
@@ -144,19 +148,23 @@ void do_interrupt (CPUState *env)
     // NOTE: we are threating the index as the address at which
     //  the handler's adress will be peeked. This is not exactly
     //  like it would happen in a real proccessor.
-    unsigned int interrupt_index = env->exception_index;
+    unsigned int interrupt_index = env1->exception_index;
 
     // Read the hendler's address
     unsigned int routine_addr = lduw_kernel(interrupt_index);
 
     // Put the return address in the stack
-    stb_kernel((env->sp--)+0x100, (env->pc >> 8) & 0xFF);  // High word
-    stb_kernel((env->sp--)+0x100, (env->pc >> 0) & 0xFF);  // Low  word
+    stb_kernel((env1->sp--)+0x100, (env1->pc >> 8) & 0xFF);  // High word
+    stb_kernel((env1->sp--)+0x100, (env1->pc >> 0) & 0xFF);  // Low  word
     // Put the flags in the stack
-    stb_kernel(env->sp--, calc_6502_flags(env) & 0xFF);
+    stb_kernel(env1->sp--, calc_6502_flags(env1) & 0xFF);
 
-    env->pc = routine_addr;
-    env->exception_index = -1;
+    env1->pc = routine_addr;
+
+    env1->exception_index = -1;
+    env1->interrupt_request &= ~CPU_INTERRUPT_HARD;
+
+    env = saved_env;
 
 }
 

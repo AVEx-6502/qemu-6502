@@ -384,7 +384,7 @@ static void gen_PPC(uint16_t ret_addr)
 }
 
 
-static void gen_iRTS(void)
+static void gen_iRTS(int add_one)
 {
     tcg_gen_addi_tl(regSP, regSP, 1);
     tcg_gen_ori_tl(regSP, regSP, 0x100);
@@ -399,7 +399,9 @@ static void gen_iRTS(void)
 
     tcg_gen_ext8u_tl(regSP, regSP);
 
-    tcg_gen_addi_tl(regPC, regPC, 1);
+    if(add_one) {
+        tcg_gen_addi_tl(regPC, regPC, 1);
+    }
     tcg_gen_ext16u_tl(regPC, regPC);        // Truncate to 16 bits
 }
 
@@ -935,15 +937,15 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             tcg_gen_movi_tl(regPC, getw_from_code(paddr));
             return EXIT_PC_UPDATED;
         }
-        case iRTS:  gen_iRTS();                     return EXIT_PC_UPDATED;
+        case iRTS:  gen_iRTS(1);                     return EXIT_PC_UPDATED;
         case iBRK:  {
-            gen_PPC(*paddr);
+            gen_PPC(*paddr+1);
             gen_iPHP();
             tcg_gen_movi_tl(regTMP, BRK_VEC);
             tcg_gen_qemu_ld16u(regPC, regTMP, 0);
             return EXIT_PC_UPDATED;
         }
-        case iRTI:  gen_iPLP();     gen_iRTS();     return EXIT_PC_UPDATED;
+        case iRTI:  gen_iPLP();     gen_iRTS(0);     return EXIT_PC_UPDATED;
 
         /*
          * Flags direct manipulations...

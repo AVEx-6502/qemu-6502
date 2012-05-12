@@ -103,11 +103,8 @@ void QEMU_NORETURN helper_excp(int excp, int error)
 
 /*****************************************************************************/
 /*   Softmmu support                                                         */
-
 #include "softmmu_exec.h"
-
 #define MMUSUFFIX _mmu
-
 #define SHIFT 0
 #include "softmmu_template.h"
 #define SHIFT 1
@@ -116,6 +113,7 @@ void QEMU_NORETURN helper_excp(int excp, int error)
 #include "softmmu_template.h"
 #define SHIFT 3
 #include "softmmu_template.h"
+
 
 void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
               void *retaddr)
@@ -154,13 +152,14 @@ void do_interrupt (CPUState *env1)
     unsigned int routine_addr = lduw_kernel(interrupt_index);
 
     // Put the return address in the stack
-    stb_kernel((env1->sp--)+0x100, (env1->pc >> 8) & 0xFF);  // High word
-    stb_kernel((env1->sp--)+0x100, (env1->pc >> 0) & 0xFF);  // Low  word
+    stb_kernel(((env1->sp--)+0x100)&0xFFFF, (env1->pc >> 8) & 0xFF);  // High word
+    stb_kernel(((env1->sp--)+0x100)&0xFFFF, (env1->pc >> 0) & 0xFF);  // Low  word
     // Put the flags in the stack
-    stb_kernel(env1->sp--, calc_6502_flags(env1) & 0xFF);
+    stb_kernel(env1->sp--, calc_6502_flags(env1, 0) & 0xFF);
 
     env1->pc = routine_addr;
 
+    // We don't want the routine to be called again
     env1->exception_index = -1;
     env1->interrupt_request &= ~CPU_INTERRUPT_HARD;
 

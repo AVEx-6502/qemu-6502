@@ -103,11 +103,9 @@ void QEMU_NORETURN helper_excp(int excp, int error)
 
 /*****************************************************************************/
 /*   Softmmu support                                                         */
-
+#define env cpu_single_env
 #include "softmmu_exec.h"
-
 #define MMUSUFFIX _mmu
-
 #define SHIFT 0
 #include "softmmu_template.h"
 #define SHIFT 1
@@ -116,6 +114,7 @@ void QEMU_NORETURN helper_excp(int excp, int error)
 #include "softmmu_template.h"
 #define SHIFT 3
 #include "softmmu_template.h"
+#undef env
 
 void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
               void *retaddr)
@@ -149,14 +148,19 @@ void do_interrupt (CPUState *env)
     // Read the hendler's address
     unsigned int routine_addr = lduw_kernel(interrupt_index);
 
+    // the PC to put in the stack needs some computation...
+    unsigned int retpc = env->pc-1;
+
     // Put the return address in the stack
-    stb_kernel((env->sp--)+0x100, (env->pc >> 8) & 0xFF);  // High word
-    stb_kernel((env->sp--)+0x100, (env->pc >> 0) & 0xFF);  // Low  word
+    stb_kernel(((env->sp--)+0x100)&0xFFFF, (retpc >> 8) & 0xFF);  // High word
+    stb_kernel(((env->sp--)+0x100)&0xFFFF, (retpc >> 0) & 0xFF);  // Low  word
     // Put the flags in the stack
-    stb_kernel(env->sp--, calc_6502_flags(env) & 0xFF);
+    stb_kernel(env->sp--, calc_6502_flags(env, 0) & 0xFF);
 
     env->pc = routine_addr;
-    env->exception_index = -1;
 
+    // We don't want the routine to be called again...
+    env->exception_index = -1;
+    env->interrupt_request = 0;
 }
 

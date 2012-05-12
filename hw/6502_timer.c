@@ -34,8 +34,8 @@ int get_timer_value(void)
 void set_timer_value(int value)
 {
     if(timer_value == 0 && value != 0) {
+        timer_value = value;
         pthread_t tid;
         pthread_create(&tid, NULL, timer_thr, NULL);
     }
-    timer_value = value;
 }

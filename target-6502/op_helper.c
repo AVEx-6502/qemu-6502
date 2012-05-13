@@ -140,7 +140,7 @@ void do_interrupt (CPUState *env1)
     env = env1;
 
     // Check if interrupts are on
-    if((env1->sr & flagI) != 0) {
+    if((env1->sr & flagI) == 0) {
 
         fprintf(stderr, "Interrupt happened!\n");
 
@@ -164,6 +164,7 @@ void do_interrupt (CPUState *env1)
         stb_kernel(((env1->sp)+0x100)&0xFFFF, calc_6502_flags(env1, 0) & 0xFF);
         env1->sp = (env1->sp - 1) & 0xFF;
 
+        env1->sr |= flagI;
         env1->pc = routine_addr;
     }
 

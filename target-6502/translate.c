@@ -1450,7 +1450,7 @@ CPU6502State *cpu_6502_init (const char *cpu_model)
     cpu6502_translate_init();
     tlb_flush(env, 1);
 
-    env->sr = (flagUNU | flagI);       // Unused flag is always 1 and I flag starts set
+    env->sr = flagUNU;    // Unused flag is always 1
     env->last_res_Z = 1;  // CPU must start with flag Z set to 0, so this can't be 0
 
     qemu_init_vcpu(env);

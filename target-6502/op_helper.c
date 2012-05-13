@@ -94,6 +94,7 @@ void helper_shutdown (void)
 
 /* Helper to call exceptions from generated code.
    We expect that ENV->PC has already been updated.  */
+
 void QEMU_NORETURN helper_excp(int excp, int error)
 {
     env->exception_index = excp;
@@ -138,26 +139,33 @@ void do_interrupt (CPUState *env1)
     saved_env = env;
     env = env1;
 
-    fprintf(stderr, "Interrupt happened!\n");
+    // Check if interrupts are on
+    if((env1->sr & flagI) != 0) {
 
-    // Converting to unsigned to avoid rounding errors. Strictly
-    //  speaking, as per the standard, int number are at least
-    //  16 bits. In the 6502 adresses are 16-bits too.
-    // NOTE: we are threating the index as the address at which
-    //  the handler's adress will be peeked. This is not exactly
-    //  like it would happen in a real proccessor.
-    unsigned int interrupt_index = env1->exception_index;
+        fprintf(stderr, "Interrupt happened!\n");
 
-    // Read the hendler's address
-    unsigned int routine_addr = lduw_kernel(interrupt_index);
+        // Converting to unsigned to avoid rounding errors. Strictly
+        //  speaking, as per the standard, int number are at least
+        //  16 bits. In the 6502 adresses are 16-bits too.
+        // NOTE: we are threating the index as the address at which
+        //  the handler's adress will be peeked. This is not exactly
+        //  like it would happen in a real proccessor.
+        unsigned int interrupt_index = env1->exception_index;
 
-    // Put the return address in the stack
-    stb_kernel(((env1->sp--)+0x100)&0xFFFF, (env1->pc >> 8) & 0xFF);  // High word
-    stb_kernel(((env1->sp--)+0x100)&0xFFFF, (env1->pc >> 0) & 0xFF);  // Low  word
-    // Put the flags in the stack
-    stb_kernel(env1->sp--, calc_6502_flags(env1, 0) & 0xFF);
+        // Read the hendler's address
+        unsigned int routine_addr = lduw_kernel(interrupt_index) & 0xFFFF;
 
-    env1->pc = routine_addr;
+        // Put the return address in the stack
+        stb_kernel(((env1->sp)+0x100)&0xFFFF, (env1->pc >> 8) & 0xFF);  // High word
+        env1->sp = (env1->sp - 1) & 0xFF;
+        stb_kernel(((env1->sp)+0x100)&0xFFFF, (env1->pc >> 0) & 0xFF);  // Low  word
+        env1->sp = (env1->sp - 1) & 0xFF;
+        // Put the flags in- the stack
+        stb_kernel(((env1->sp)+0x100)&0xFFFF, calc_6502_flags(env1, 0) & 0xFF);
+        env1->sp = (env1->sp - 1) & 0xFF;
+
+        env1->pc = routine_addr;
+    }
 
     // We don't want the routine to be called again
     env1->exception_index = -1;

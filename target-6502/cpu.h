@@ -117,15 +117,15 @@ QEMU_NORETURN void cpu_unassigned_access(CPUState *env1,
                                          int is_exec, int unused, int size);
 
 
-static inline int calc_6502_flags(CPUState *env, unsigned brk)
+static inline unsigned calc_6502_flags(CPUState *env, unsigned brk)
 {
     unsigned c = ((env->last_res_CN&0xFF00) != 0);
-    unsigned z = (env->last_res_Z == 0);
+    unsigned z = ((env->last_res_Z & 0xFF)== 0);
     //unsigned i;
     //unsigned d
     //unsigned b;
     //unsigned unu;
-    unsigned v = (env->last_op1_V ^ ~env->last_op2_V) & (env->last_op1_V ^ env->last_res_V) & 0x80;
+    unsigned v = (((env->last_op1_V ^ ~env->last_op2_V) & (env->last_op1_V ^ env->last_res_V) & 0x80) != 0);
     unsigned n = ((env->last_res_CN&0x80) != 0);
 
     return    c << 0

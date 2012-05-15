@@ -24,7 +24,7 @@
 #define TIMER_READ_ADDR     0x02
 #define TIMER_WRITE_ADDR    0x02
 
-#define TIMER_CALL_ADDR     0xFF00
+#define TIMER_CALL_ADDR     IRQ_VEC
 
 static CPUState *cpu;
 static CharDriverState *console;

@@ -139,30 +139,33 @@ void do_interrupt (CPUState *env1)
     saved_env = env;
     env = env1;
 
-    // Check if interrupts are on
-    if((env1->sr & flagI) == 0) {
+    // Converting to unsigned to avoid rounding errors. Strictly
+    //  speaking, as per the standard, int number are at least
+    //  16 bits. In the 6502 adresses are 16-bits too.
+    // NOTE: we are threating the index as the address at which
+    //  the handler's adress will be peeked. This is not exactly
+    //  like it would happen in a real proccessor.
+    unsigned int interrupt_index = env1->exception_index;
+
+    // Check if interrupts are on. This only matters for IRQs, other interrupts cannot be disabled
+    if(interrupt_index != IRQ_VEC || (env1->sr & flagI) == 0) {
 
         fprintf(stderr, "Interrupt happened!\n");
-
-        // Converting to unsigned to avoid rounding errors. Strictly
-        //  speaking, as per the standard, int number are at least
-        //  16 bits. In the 6502 adresses are 16-bits too.
-        // NOTE: we are threating the index as the address at which
-        //  the handler's adress will be peeked. This is not exactly
-        //  like it would happen in a real proccessor.
-        unsigned int interrupt_index = env1->exception_index;
 
         // Read the hendler's address
         unsigned int routine_addr = lduw_kernel(interrupt_index) & 0xFFFF;
 
-        // Put the return address in the stack
-        stb_kernel(((env1->sp)+0x100)&0xFFFF, (env1->pc >> 8) & 0xFF);  // High word
-        env1->sp = (env1->sp - 1) & 0xFF;
-        stb_kernel(((env1->sp)+0x100)&0xFFFF, (env1->pc >> 0) & 0xFF);  // Low  word
-        env1->sp = (env1->sp - 1) & 0xFF;
-        // Put the flags in- the stack
-        stb_kernel(((env1->sp)+0x100)&0xFFFF, calc_6502_flags(env1, 0) & 0xFF);
-        env1->sp = (env1->sp - 1) & 0xFF;
+        // Reset interrupt saves nothing, just jumps to new location
+        if(interrupt_index != RESET_VEC) {
+            // Put the return address in the stack
+            stb_kernel((env1->sp + 0x100) & 0xFFFF, (env1->pc >> 8) & 0xFF);  // High word
+            env1->sp = (env1->sp - 1) & 0xFF;
+            stb_kernel((env1->sp + 0x100) & 0xFFFF, (env1->pc >> 0) & 0xFF);  // Low  word
+            env1->sp = (env1->sp - 1) & 0xFF;
+            // Put the flags in the stack
+            stb_kernel((env1->sp + 0x100) & 0xFFFF, calc_6502_flags(env1, 0) & 0xFF);
+            env1->sp = (env1->sp - 1) & 0xFF;
+        }
 
         env1->sr |= flagI;
         env1->pc = routine_addr;

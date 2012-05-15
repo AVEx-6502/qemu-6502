@@ -78,7 +78,10 @@ struct CPU6502State {
     int error_code;
 };
 
-#define BRK_VEC 0xFFFE
+#define BRK_VEC     0xFFFE
+#define IRQ_VEC     0xFFFE
+#define NMI_VEC     0xFFFA
+#define RESET_VEC   0xFFFC
 
 enum flag_masks {
     flagC   = (1<<0),

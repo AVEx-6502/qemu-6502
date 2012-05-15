@@ -64,7 +64,7 @@ typedef enum {
 static TCGv_ptr cpu_env;
 static TCGv regPC;
 
-// 6502 registers...
+// 6502 registers
 static TCGv regAC;
 static TCGv regX;
 static TCGv regY;
@@ -90,7 +90,7 @@ static void cpu6502_translate_init(void)
 
     cpu_env = tcg_global_reg_new_ptr(TCG_AREG0, "env");
 
-    // Creating registers...
+    // Creating registers
     regAC = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, ac), "AC");
     regX  = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState,  x),  "X");
     regY  = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState,  y),  "Y");
@@ -392,7 +392,7 @@ static void gen_iRTS(int add_one)
     tcg_gen_qemu_ld8u(regPC, regSP, 0);     // Low byte
     tcg_gen_addi_tl(regSP, regSP, 1);
     tcg_gen_ext8u_tl(regSP, regSP);
-    tcg_gen_ori_tl(regSP, regSP, 0x100);    // Fix the possible wrap-around...
+    tcg_gen_ori_tl(regSP, regSP, 0x100);    // Fix the possible wrap-around
     tcg_gen_qemu_ld8u(regTMP, regSP, 0);    // High byte
     tcg_gen_shli_tl(regTMP, regTMP, 8);
     tcg_gen_or_tl(regPC, regPC, regTMP);
@@ -941,6 +941,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iBRK:  {
             gen_PPC(*paddr+1);
             gen_iPHP();
+            tcg_gen_ori_tl(regSR, regSR,  flagI);      // Disable interrupts
             tcg_gen_movi_tl(regTMP, BRK_VEC);
             tcg_gen_qemu_ld16u(regPC, regTMP, 0);
             return EXIT_PC_UPDATED;
@@ -948,7 +949,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         case iRTI:  gen_iPLP();     gen_iRTS(0);     return EXIT_PC_UPDATED;
 
         /*
-         * Flags direct manipulations...
+         * Flags direct manipulations
          */
 
         case iSEC:  tcg_gen_ori_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);     return NO_EXIT;
@@ -959,7 +960,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             return NO_EXIT;
         }
 
-        // Clear's and Set's  for D and I flags...
+        // Clear's and Set's  for D and I flags
         case iCLD:  tcg_gen_andi_tl(regSR, regSR, ~flagD);    return NO_EXIT;
         case iSED:  tcg_gen_ori_tl (regSR, regSR,  flagD);    return NO_EXIT;
         case iCLI:  tcg_gen_andi_tl(regSR, regSR, ~flagI);    return NO_EXIT;
@@ -1009,7 +1010,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
         /*
-         * Shifts and rotates...
+         * Shifts and rotates
          */
 
         case iASL_A: {
@@ -1240,7 +1241,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
 
         /*
-         * Misc
+         * Stack opreations
          */
         case iPHA: {
             tcg_gen_ori_tl(regSP, regSP, 0x100);

@@ -153,7 +153,8 @@ static inline void cpu_get_tb_cpu_state(CPUState *env, target_ulong *pc,
 
 static inline bool cpu_has_work(CPUState *env)
 {
-    return 1;
+    return (env->interrupt_request & CPU_INTERRUPT_HARD) &&
+           (env->exception_index != IRQ_VEC || (env->sr & flagI) == 0);
 }
 
 #include "exec-all.h"

@@ -226,19 +226,41 @@ static inline uint32_t gen_zero_page_Y_mode_addr(TCGv reg, uint32_t code_addr) {
     tcg_gen_ext8u_tl(reg, reg);   // Only lowest byte matters
     return code_addr;
 }
+
 /* Load address for "X,ind" addressing mode (looks like black magic but it's real!)...
  * In the black lang of Mordor (6502 assembly syntax), it's written ($BB,X).
  * In higher elvish (x86-like syntax), this means sth like [[X+[ 0x?? ]]].
  * The function uses the same register for all intermediate values...
  */
 static inline uint32_t gen_indirect_X_addr(TCGv reg, uint32_t code_addr) {   // [X+code_addr] (2 bytes)
-    code_addr = gen_zero_page_X_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld16u(reg, reg, 0);
+    // NOTE1: X+code_addr is truncated to 1 byte
+    // NOTE2: When X+code_addr == FF, the result will be from 0xFF 0x00 and not 0xFF 0x100
+    code_addr = gen_zero_page_X_mode_addr(reg, code_addr);  // reg = X + code_addr
+    TCGv reg_temp = tcg_temp_new();
+    tcg_gen_qemu_ld8u(reg_temp, reg, 0);    // Put first byte in reg_temp, reg_temp = [X+code_addr] & 0x00FF
+    tcg_gen_addi_tl(reg, reg, 1);           // Calculate address of second byte
+    tcg_gen_ext8u_tl(reg, reg);
+    tcg_gen_qemu_ld8u(reg, reg, 0);         // Put second byte in reg
+    tcg_gen_shli_tl(reg, reg, 8);
+    tcg_gen_or_tl(reg, reg, reg_temp);      // Now join both
+    tcg_temp_free(reg_temp);
     return code_addr;
 }
 static uint32_t gen_Y_indirect_addr(TCGv reg, uint32_t code_addr) {  // [code_addr]+Y (2 bytes)
-    code_addr = gen_zero_page_mode_addr(reg, code_addr);
-    tcg_gen_qemu_ld16u(reg, reg, 0);
+    // NOTE: When code_addr == 0xFF, the result will be from 0xFF 0x00 and not 0xFF 0x100
+    uint32_t base = get_from_code(&code_addr);
+    tcg_gen_movi_tl(reg, base);
+    if(base != 0xFF) {  // Easy case
+        tcg_gen_qemu_ld16u(reg, reg, 0);
+    } else {    // Page boundary, complex case
+        TCGv reg_temp = tcg_temp_new();
+        tcg_gen_qemu_ld8u(reg_temp, reg, 0);    // Put first byte in reg_temp, reg_temp = [code_addr] & 0xFF
+        tcg_gen_movi_tl(reg, 0);                // Put second byte in reg
+        tcg_gen_qemu_ld8u(reg, reg, 0);
+        tcg_gen_shli_tl(reg, reg, 8);
+        tcg_gen_or_tl(reg, reg, reg_temp);      // Join both
+        tcg_temp_free(reg_temp);
+    }
     tcg_gen_add_tl(reg, reg, regY);     // Add Y
     tcg_gen_ext16u_tl(reg, reg);        // Truncate to 16 bits
     return code_addr;
@@ -285,6 +307,7 @@ static uint32_t gen_Y_indirect_mode(TCGv reg, uint32_t code_addr) {  // [[code_a
     tcg_gen_qemu_ld8u(reg, reg, 0);
     return code_addr;
 }
+
 
 
 static void gen_V_flag(TCGv reg) {
@@ -891,8 +914,19 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
         case iJMP_abs:  tcg_gen_movi_tl(regPC, getw_from_code(paddr));  return EXIT_PC_UPDATED;
         case iJMP_ind: {
-            gen_abs_mode_addr(regTMP, *paddr);
-            tcg_gen_qemu_ld16u(regPC, regTMP, 0);
+            // NOTE: When address location is xxFF, the address will be read from xxFF and xx00 not from xxFF xx00+0100
+            uint32_t jmp_address = getw_from_code(paddr);
+            tcg_gen_movi_tl(regTMP, jmp_address);
+            if((jmp_address & 0xFF) != 0xFF) {  // Easy case
+                tcg_gen_qemu_ld16u(regPC, regTMP, 0);
+            } else {    // Page boundary, complex case
+                tcg_gen_qemu_ld8u(regPC, regTMP, 0);        // Put first byte in regPC, regPC = [jmp_address] & 0xFF
+                uint32_t second_byte_location = (jmp_address & 0xFF00) | ((jmp_address + 1) & 0x00FF);
+                tcg_gen_movi_tl(regTMP, second_byte_location);
+                tcg_gen_qemu_ld8u(regTMP, regTMP, 0);       // Put second byte in regTMP
+                tcg_gen_shli_tl(regTMP, regTMP, 8);
+                tcg_gen_or_tl(regPC, regTMP, regPC);        // Join both
+            }
             return EXIT_PC_UPDATED;
         }
 
@@ -1451,6 +1485,7 @@ CPU6502State *cpu_6502_init (const char *cpu_model)
     cpu6502_translate_init();
     tlb_flush(env, 1);
 
+    env->exception_index = -1;
     env->sr = flagUNU;    // Unused flag is always 1
     env->last_res_Z = 1;  // CPU must start with flag Z set to 0, so this can't be 0
 

@@ -152,8 +152,10 @@ void do_interrupt (CPUState *env1)
 
         fprintf(stderr, "Interrupt happened!\n");
 
-        // Read the hendler's address
+        // Read the handler's address
         unsigned int routine_addr = lduw_kernel(interrupt_index) & 0xFFFF;
+
+//        fprintf(stderr, " %u\n", routine_addr);
 
         // Reset interrupt saves nothing, just jumps to new location
         if(interrupt_index != RESET_VEC) {
@@ -172,8 +174,8 @@ void do_interrupt (CPUState *env1)
     }
 
     // We don't want the routine to be called again
-    env1->exception_index = -1;
     env1->interrupt_request &= ~CPU_INTERRUPT_HARD;
+    env1->exception_index = -1;
 
     env = saved_env;
 

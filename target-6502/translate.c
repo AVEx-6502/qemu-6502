@@ -180,6 +180,10 @@ enum opcode {
     iCLI = 0x58, iSEI = 0x78,
 
     iNOP = 0xEA,
+
+    // Undocumented opcodes
+    iLAX_zpg = 0xA7, iLAX_zpgY = 0xB7, iLAX_abs = 0xAF, iLAX_Xind = 0xA3, iLAX_indY = 0xB3, iLAX_absY = 0xBF,
+    iSAX_zpg = 0x87, iSAX_zpgY = 0x97, iSAX_abs = 0x8F, iSAX_Xind = 0x83,
 };
 
 
@@ -1357,7 +1361,84 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             // Ignore non-defined instructions.
             return NO_EXIT;
         }
+
+        //
+        //  Undocumented instructions
+        //
+
+        // Opcodes for KIL instruction, some collide with phony instructions, others don't
+        case 0x12:  case 0x32:  case 0x52:  case 0x72:  case 0x92:  case 0xB2:  case 0xD2:
 #endif
+        case 0x02:  case 0x22:  case 0x42:  case 0x62:  case 0xF2:
+            return EXIT_PC_UPDATED;     // Jump to current PC
+
+        // NOP
+        case 0x1A:  case 0x3A:  case 0x5A:  case 0x7A:  case 0xDA:  case 0xFA:
+            return NO_EXIT;
+
+        // DOPs and TOPs (double and triple NOPs)
+        case 0x80:  case 0x82:  case 0x89:  case 0xC2:  case 0xE2:
+            addr_func = NULL;   // Immediate
+            goto nop_gen;
+
+        case 0x04:  case 0x44:  case 0x64:
+            addr_func = gen_zero_page_mode;
+            goto nop_gen;
+
+        case 0x14:  case 0x34:  case 0x54:  case 0x74:  case 0xD4:  case 0xF4:
+            addr_func = gen_zero_page_X_mode;
+            goto nop_gen;
+
+        case 0x0C:
+            addr_func = gen_abs_mode;
+            goto nop_gen;
+
+        case 0x1C:  case 0x3C:  case 0x5C:  case 0x7C:  case 0xDC:  case 0xFC:
+            addr_func = gen_Xabs_mode;
+            goto nop_gen;
+
+        nop_gen: {
+            if(addr_func == NULL) {
+                get_from_code(paddr);
+            } else {
+                *paddr = (*addr_func)(regTMP, *paddr);
+            }
+            return NO_EXIT;
+        }
+
+
+        case iLAX_abs:   addr_func = gen_abs_mode;           goto lax_gen;
+        case iLAX_absY:  addr_func = gen_Yabs_mode;          goto lax_gen;
+        case iLAX_zpg:   addr_func = gen_zero_page_mode;     goto lax_gen;
+        case iLAX_zpgY:  addr_func = gen_zero_page_Y_mode;   goto lax_gen;
+        case iLAX_Xind:  addr_func = gen_indirect_X_mode;    goto lax_gen;
+        case iLAX_indY:  addr_func = gen_Y_indirect_mode;    goto lax_gen;
+
+        lax_gen: {
+            *paddr = (*addr_func)(regAC, *paddr);
+            tcg_gen_mov_tl(regX, regAC);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);                        // Save result for Z flag computation
+            return NO_EXIT;
+        }
+
+
+        case iSAX_abs:   addr_func = gen_abs_mode_addr;           goto sax_gen;
+        case iSAX_zpg:   addr_func = gen_zero_page_mode_addr;     goto sax_gen;
+        case iSAX_zpgY:  addr_func = gen_zero_page_Y_mode_addr;   goto sax_gen;
+        case iSAX_Xind:  addr_func = gen_indirect_X_addr;         goto sax_gen;
+
+        sax_gen: {
+            *paddr = (*addr_func)(regTMP, *paddr);
+            TCGv reg_value = tcg_temp_new();
+            tcg_gen_and_tl(reg_value, regAC, regX);
+            tcg_gen_qemu_st8(reg_value, regTMP, 0);
+            tcg_temp_free(reg_value);
+            return NO_EXIT;
+        }
+
+
     }
 }
 

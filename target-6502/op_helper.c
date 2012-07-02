@@ -170,6 +170,18 @@ void do_interrupt (CPUState *env1)
 
         // Reset interrupt saves nothing, just jumps to new location
         if(interrupt_type != CPU_INTERRUPT_RESET) {
+
+            // HACK: KIL instruction only responds to RESET interrupt
+            // If the last instruction executed was KIL, we can't execute the interrupt handler
+            unsigned int instr = ldub_kernel(env1->pc);
+            unsigned int instr_low = instr & 0x0F;
+            unsigned int instr_high = (instr & 0xF0) >> 4;
+
+            if(instr_low == 2 && ( (instr_high & 1) == 1 || ((instr_high & 1) == 0 && instr_high < 7))) {
+                fprintf(stderr, "KIL found!\n");
+                goto do_interrupt_end;
+            }
+
             // Put the return address in the stack
             stb_kernel((env1->sp + 0x100) & 0xFFFF, (env1->pc >> 8) & 0xFF);  // High word
             env1->sp = (env1->sp - 1) & 0xFF;
@@ -184,6 +196,7 @@ void do_interrupt (CPUState *env1)
         env1->pc = routine_addr;
     }
 
+do_interrupt_end:
     // We don't want the routine to be called again
     env1->interrupt_request &= ~interrupt_type;
     env = saved_env;

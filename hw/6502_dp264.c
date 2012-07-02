@@ -24,7 +24,6 @@
 #define TIMER_READ_ADDR     0x02
 #define TIMER_WRITE_ADDR    0x02
 
-#define TIMER_CALL_ADDR     IRQ_VEC
 
 static CPUState *cpu;
 static CharDriverState *console;
@@ -39,15 +38,22 @@ static void read_handler(void *opaque, const uint8_t* data, int datalen)
 {
     int i;
     for(i = 0; i < datalen; i++) {
-        write_char(data[i]);
+        if(data[i] == '/') {    // IRQ
+            cpu_interrupt(cpu, CPU_INTERRUPT_IRQ);
+        } else if(data[i] == '*') { // NMI
+            cpu_interrupt(cpu, CPU_INTERRUPT_NMI);
+        } else if(data[i] == '-') { // RST
+            cpu_interrupt(cpu, CPU_INTERRUPT_RESET);
+        } else {
+            write_char(data[i]);
+        }
     }
 }
 
 
 static void timer_callback(void)
 {
-    cpu->exception_index = TIMER_CALL_ADDR;
-    cpu_interrupt(cpu, CPU_INTERRUPT_HARD);
+    cpu_interrupt(cpu, CPU_INTERRUPT_IRQ);
 }
 
 

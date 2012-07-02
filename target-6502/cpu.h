@@ -78,10 +78,9 @@ struct CPU6502State {
     int error_code;
 };
 
-#define BRK_VEC     0xFFFE
-#define IRQ_VEC     0xFFFE
-#define NMI_VEC     0xFFFA
-#define RESET_VEC   0xFFFC
+#define CPU_INTERRUPT_IRQ       CPU_INTERRUPT_TGT_EXT_0
+#define CPU_INTERRUPT_NMI       CPU_INTERRUPT_TGT_EXT_1
+#define CPU_INTERRUPT_RESET     CPU_INTERRUPT_TGT_EXT_2
 
 enum flag_masks {
     flagC   = (1<<0),
@@ -153,8 +152,9 @@ static inline void cpu_get_tb_cpu_state(CPUState *env, target_ulong *pc,
 
 static inline bool cpu_has_work(CPUState *env)
 {
-    return (env->interrupt_request & CPU_INTERRUPT_HARD) &&
-           (env->exception_index != IRQ_VEC || (env->sr & flagI) == 0);
+    return (env->interrupt_request & CPU_INTERRUPT_NMI)   ||
+           (env->interrupt_request & CPU_INTERRUPT_RESET) ||
+           ((env->interrupt_request & CPU_INTERRUPT_IRQ) && ((env->sr & flagI) == 0));
 }
 
 #include "exec-all.h"

@@ -60,6 +60,8 @@ typedef enum {
     EXIT_NORETURN,
 } ExitStatus;
 
+#define BRK_VEC     0xFFFE
+
 // The following are the register variable as taken by TCG functions
 static TCGv_ptr cpu_env;
 static TCGv regPC;
@@ -1488,7 +1490,6 @@ CPU6502State *cpu_6502_init (const char *cpu_model)
     cpu6502_translate_init();
     tlb_flush(env, 1);
 
-    env->exception_index = -1;
     env->sr = (flagUNU | flagI);    // Unused flag is always 1, interrupts start disabled
     env->last_res_Z = 1;  // CPU must start with flag Z set to 0, so this can't be 0
 

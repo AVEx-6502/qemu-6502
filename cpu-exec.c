@@ -498,7 +498,9 @@ int cpu_exec(CPUState *env)
                         next_tb = 0;
                     }
 #elif defined(TARGET_6502)
-                    if(env->interrupt_request & CPU_INTERRUPT_HARD) {
+                    if((env->interrupt_request & CPU_INTERRUPT_IRQ) ||
+                       (env->interrupt_request & CPU_INTERRUPT_NMI) ||
+                       (env->interrupt_request & CPU_INTERRUPT_RESET)) {
                         do_interrupt(env);
                         next_tb = 0;
                     }

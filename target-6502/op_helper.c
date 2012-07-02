@@ -133,32 +133,43 @@ void tlb_fill(CPUState *env1, target_ulong addr, int rw, int mmu_idx,
 
 // Interrupt stuff
 
+#define IRQ_VEC     0xFFFE
+#define NMI_VEC     0xFFFA
+#define RESET_VEC   0xFFFC
+
 void do_interrupt (CPUState *env1)
 {
     CPUState *saved_env;
     saved_env = env;
     env = env1;
 
-    // Converting to unsigned to avoid rounding errors. Strictly
-    //  speaking, as per the standard, int number are at least
-    //  16 bits. In the 6502 adresses are 16-bits too.
-    // NOTE: we are threating the index as the address at which
-    //  the handler's adress will be peeked. This is not exactly
-    //  like it would happen in a real proccessor.
-    unsigned int interrupt_index = env1->exception_index;
+    unsigned int interrupt_type = 0, interrupt_vector = 0;
+
+    if(env1->interrupt_request & CPU_INTERRUPT_NMI) {
+        interrupt_type = CPU_INTERRUPT_NMI;
+        interrupt_vector = NMI_VEC;
+    } else if(env1->interrupt_request & CPU_INTERRUPT_RESET) {
+        interrupt_type = CPU_INTERRUPT_RESET;
+        interrupt_vector = RESET_VEC;
+    } else if(env1->interrupt_request & IRQ_VEC) {
+        interrupt_type = CPU_INTERRUPT_IRQ;
+        interrupt_vector = IRQ_VEC;
+    } else {
+        fprintf(stderr, "Uknown interrupt happened: %X\n", env1->interrupt_request);
+    }
 
     // Check if interrupts are on. This only matters for IRQs, other interrupts cannot be disabled
-    if(interrupt_index != IRQ_VEC || (env1->sr & flagI) == 0) {
+    if(interrupt_type != CPU_INTERRUPT_IRQ || (env1->sr & flagI) == 0) {
 
         fprintf(stderr, "Interrupt happened!\n");
 
         // Read the handler's address
-        unsigned int routine_addr = lduw_kernel(interrupt_index) & 0xFFFF;
+        unsigned int routine_addr = lduw_kernel(interrupt_vector) & 0xFFFF;
 
-//        fprintf(stderr, " %u\n", routine_addr);
+//        fprintf(stderr, "%u %u\n", interrupt_vector, routine_addr);
 
         // Reset interrupt saves nothing, just jumps to new location
-        if(interrupt_index != RESET_VEC) {
+        if(interrupt_type != CPU_INTERRUPT_RESET) {
             // Put the return address in the stack
             stb_kernel((env1->sp + 0x100) & 0xFFFF, (env1->pc >> 8) & 0xFF);  // High word
             env1->sp = (env1->sp - 1) & 0xFF;
@@ -174,9 +185,7 @@ void do_interrupt (CPUState *env1)
     }
 
     // We don't want the routine to be called again
-    env1->interrupt_request &= ~CPU_INTERRUPT_HARD;
-    env1->exception_index = -1;
-
+    env1->interrupt_request &= ~interrupt_type;
     env = saved_env;
 
 }

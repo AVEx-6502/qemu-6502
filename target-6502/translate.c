@@ -131,11 +131,19 @@ static ExitStatus gen_excp(DisasContext *ctx, int exception, int error_code)
 
 enum opcode {
     iADC_imm=0x69, iADC_abs=0x6D, iADC_zpg=0x65, iADC_Xind=0x61, iADC_indY=0x71, iADC_zpgX=0x75, iADC_absX=0x7D, iADC_absY=0x79,
-    iAND_imm=0x29, iAND_abs=0x2D, iAND_zpg=0x25, iAND_Xind=0x21, iAND_indY=0x31, iAND_zpgX=0x35, iAND_absX=0x3D, iAND_absY=0x39,
+    iSBC_imm=0xE9, iSBC_abs=0xED, iSBC_zpg=0xE5, iSBC_Xind=0xE1, iSBC_indY=0xF1, iSBC_zpgX=0xF5, iSBC_absX=0xFD, iSBC_absY=0xF9,
     iCMP_imm=0xC9, iCMP_abs=0xCD, iCMP_zpg=0xC5, iCMP_Xind=0xC1, iCMP_indY=0xD1, iCMP_zpgX=0xD5, iCMP_absX=0xDD, iCMP_absY=0xD9,
     iEOR_imm=0x49, iEOR_abs=0x4D, iEOR_zpg=0x45, iEOR_Xind=0x41, iEOR_indY=0x51, iEOR_zpgX=0x55, iEOR_absX=0x5D, iEOR_absY=0x59,
-    iLDA_imm=0xA9, iLDA_abs=0xAD, iLDA_zpg=0xA5, iLDA_Xind=0xA1, iLDA_indY=0xB1, iLDA_zpgX=0xB5, iLDA_absX=0xBD, iLDA_absY=0xB9,
+    iAND_imm=0x29, iAND_abs=0x2D, iAND_zpg=0x25, iAND_Xind=0x21, iAND_indY=0x31, iAND_zpgX=0x35, iAND_absX=0x3D, iAND_absY=0x39,
     iORA_imm=0x09, iORA_abs=0x0D, iORA_zpg=0x05, iORA_Xind=0x01, iORA_indY=0x11, iORA_zpgX=0x15, iORA_absX=0x1D, iORA_absY=0x19,
+
+    iLDA_imm=0xA9, iLDA_abs=0xAD, iLDA_zpg=0xA5, iLDA_Xind=0xA1, iLDA_indY=0xB1, iLDA_zpgX=0xB5, iLDA_absX=0xBD, iLDA_absY=0xB9,
+    iLDX_imm=0xA2, iLDX_abs=0xAE, iLDX_zpg=0xA6, iLDX_zpgY=0xB6, iLDX_absY=0xBE,
+    iLDY_imm=0xA0, iLDY_abs=0xAC, iLDY_zpg=0xA4, iLDY_zpgX=0xB4, iLDY_absX=0xBC,
+
+    iSTA_abs=0x8D, iSTA_absX=0x9D, iSTA_absY=0x99, iSTA_zpg=0x85, iSTA_zpgX=0x95, iSTA_Xind=0x81, iSTA_indY=0x91,
+    iSTX_abs=0x8E, iSTX_zpg=0x86, iSTX_zpgY=0x96,
+    iSTY_abs=0x8C, iSTY_zpg=0x84, iSTY_zpgX=0x94,
 
     iASL_A=0x0A, iASL_zpg=0x06, iASL_zpgX=0x16, iASL_abs=0x0E, iASL_absX=0x1E,
     iLSR_A=0x4A, iLSR_zpg=0x46, iLSR_zpgX=0x56, iLSR_abs=0x4E, iLSR_absX=0x5E,
@@ -147,10 +155,7 @@ enum opcode {
     iCPX_imm = 0xE0, iCPX_abs = 0xEC, iCPX_zpg = 0xE4,
     iCPY_imm = 0xC0, iCPY_abs = 0xCC, iCPY_zpg = 0xC4,
 
-    iSBC_imm=0xE9,
-
-    iTXS = 0x9A,
-    iTSX = 0xBA,
+    iTXA = 0x8A, iTYA = 0x98, iTAY = 0xA8, iTAX = 0xAA, iTXS = 0x9A, iTSX = 0xBA,
 
     iPHA = 0x48,
     iPHP = 0x08,
@@ -453,9 +458,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
 
         // Immediate
-        case 0xA0:  used_reg = regY;     goto load_imm_gen;
-        case 0xA2:  used_reg = regX;     goto load_imm_gen;
-        case 0xA9:  used_reg = regAC;    goto load_imm_gen;
+        case iLDA_imm:  used_reg = regAC;    goto load_imm_gen;
+        case iLDX_imm:  used_reg = regX;     goto load_imm_gen;
+        case iLDY_imm:  used_reg = regY;     goto load_imm_gen;
 
         load_imm_gen: {
             tcg_gen_movi_tl(used_reg, get_from_code(paddr));
@@ -466,25 +471,25 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         }
 
         // Absolute
-        case 0xAD:  used_reg = regAC;    addr_func = gen_abs_mode;           goto load_gen;
-        case 0xAE:  used_reg = regX;     addr_func = gen_abs_mode;           goto load_gen;
-        case 0xAC:  used_reg = regY;     addr_func = gen_abs_mode;           goto load_gen;
+        case iLDA_abs:   used_reg = regAC;    addr_func = gen_abs_mode;           goto load_gen;
+        case iLDX_abs:   used_reg = regX;     addr_func = gen_abs_mode;           goto load_gen;
+        case iLDY_abs:   used_reg = regY;     addr_func = gen_abs_mode;           goto load_gen;
         // Absolute+X
-        case 0xBD:  used_reg = regAC;    addr_func = gen_Xabs_mode;          goto load_gen;
-        case 0xBC:  used_reg = regY;     addr_func = gen_Xabs_mode;          goto load_gen;
+        case iLDA_absX:  used_reg = regAC;    addr_func = gen_Xabs_mode;          goto load_gen;
+        case iLDY_absX:  used_reg = regY;     addr_func = gen_Xabs_mode;          goto load_gen;
         // Absolute+Y
-        case 0xB9:  used_reg = regAC;    addr_func = gen_Yabs_mode;          goto load_gen;
-        case 0xBE:  used_reg = regX;     addr_func = gen_Yabs_mode;          goto load_gen;
+        case iLDA_absY:  used_reg = regAC;    addr_func = gen_Yabs_mode;          goto load_gen;
+        case iLDX_absY:  used_reg = regX;     addr_func = gen_Yabs_mode;          goto load_gen;
         // Zero Page
-        case 0xA5:  used_reg = regAC;    addr_func = gen_zero_page_mode;     goto load_gen;
-        case 0xB5:  used_reg = regAC;    addr_func = gen_zero_page_X_mode;   goto load_gen;
-        case 0xA6:  used_reg = regX;     addr_func = gen_zero_page_mode;     goto load_gen;
-        case 0xB6:  used_reg = regX;     addr_func = gen_zero_page_Y_mode;   goto load_gen;
-        case 0xA4:  used_reg = regY;     addr_func = gen_zero_page_mode;     goto load_gen;
-        case 0xB4:  used_reg = regY;     addr_func = gen_zero_page_X_mode;   goto load_gen;
+        case iLDA_zpg:   used_reg = regAC;    addr_func = gen_zero_page_mode;     goto load_gen;
+        case iLDX_zpg:   used_reg = regX;     addr_func = gen_zero_page_mode;     goto load_gen;
+        case iLDY_zpg:   used_reg = regY;     addr_func = gen_zero_page_mode;     goto load_gen;
+        case iLDA_zpgX:  used_reg = regAC;    addr_func = gen_zero_page_X_mode;   goto load_gen;
+        case iLDY_zpgX:  used_reg = regY;     addr_func = gen_zero_page_X_mode;   goto load_gen;
+        case iLDX_zpgY:  used_reg = regX;     addr_func = gen_zero_page_Y_mode;   goto load_gen;
         // Indirect
-        case 0xA1:  used_reg = regAC;    addr_func = gen_indirect_X_mode;    goto load_gen;
-        case 0xB1:  used_reg = regAC;    addr_func = gen_Y_indirect_mode;    goto load_gen;
+        case iLDA_Xind:  used_reg = regAC;    addr_func = gen_indirect_X_mode;    goto load_gen;
+        case iLDA_indY:  used_reg = regAC;    addr_func = gen_Y_indirect_mode;    goto load_gen;
 
         load_gen: {
             *paddr = (*addr_func)(used_reg, *paddr);
@@ -499,25 +504,22 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
 
         // Absolute
-        case 0x8D:  addr_func = gen_abs_mode_addr;      used_reg = regAC;          goto store_gen;
-        case 0x8E:  addr_func = gen_abs_mode_addr;      used_reg = regX;           goto store_gen;
-        case 0x8C:  addr_func = gen_abs_mode_addr;      used_reg = regY;           goto store_gen;
-
+        case iSTA_abs:   addr_func = gen_abs_mode_addr;           used_reg = regAC;     goto store_gen;
+        case iSTX_abs:   addr_func = gen_abs_mode_addr;           used_reg = regX;      goto store_gen;
+        case iSTY_abs:   addr_func = gen_abs_mode_addr;           used_reg = regY;      goto store_gen;
         // Absolute+?
-        case 0x9D:  addr_func = gen_Xabs_mode_addr;      used_reg = regAC;         goto store_gen;
-        case 0x99:  addr_func = gen_Yabs_mode_addr;      used_reg = regAC;         goto store_gen;
-
+        case iSTA_absX:  addr_func = gen_Xabs_mode_addr;          used_reg = regAC;     goto store_gen;
+        case iSTA_absY:  addr_func = gen_Yabs_mode_addr;          used_reg = regAC;     goto store_gen;
         // Zero-Page
-        case 0x85:  addr_func = gen_zero_page_mode_addr;     used_reg = regAC;     goto store_gen;
-        case 0x95:  addr_func = gen_zero_page_X_mode_addr;   used_reg = regAC;     goto store_gen;
-        case 0x86:  addr_func = gen_zero_page_mode_addr;     used_reg = regX;      goto store_gen;
-        case 0x96:  addr_func = gen_zero_page_Y_mode_addr;   used_reg = regX;      goto store_gen;
-        case 0x84:  addr_func = gen_zero_page_mode_addr;     used_reg = regY;      goto store_gen;
-        case 0x94:  addr_func = gen_zero_page_X_mode_addr;   used_reg = regY;      goto store_gen;
-                                                                                   goto store_gen;
+        case iSTA_zpg:   addr_func = gen_zero_page_mode_addr;     used_reg = regAC;     goto store_gen;
+        case iSTX_zpg:   addr_func = gen_zero_page_mode_addr;     used_reg = regX;      goto store_gen;
+        case iSTY_zpg:   addr_func = gen_zero_page_mode_addr;     used_reg = regY;      goto store_gen;
+        case iSTA_zpgX:  addr_func = gen_zero_page_X_mode_addr;   used_reg = regAC;     goto store_gen;
+        case iSTY_zpgX:  addr_func = gen_zero_page_X_mode_addr;   used_reg = regY;      goto store_gen;
+        case iSTX_zpgY:  addr_func = gen_zero_page_Y_mode_addr;   used_reg = regX;      goto store_gen;
         // Indirect
-        case 0x81:  addr_func = gen_indirect_X_addr;         used_reg = regAC;     goto store_gen;
-        case 0x91:  addr_func = gen_Y_indirect_addr;         used_reg = regAC;     goto store_gen;
+        case iSTA_Xind:  addr_func = gen_indirect_X_addr;         used_reg = regAC;     goto store_gen;
+        case iSTA_indY:  addr_func = gen_Y_indirect_addr;         used_reg = regAC;     goto store_gen;
 
         store_gen: {
             *paddr = (*addr_func)(regTMP, *paddr);
@@ -531,10 +533,10 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
         TCGv src_reg;
         TCGv dst_reg;
 
-        case 0x8A:      src_reg = regX;      dst_reg = regAC;       goto reg_transfer_gen;
-        case 0x98:      src_reg = regY;      dst_reg = regAC;       goto reg_transfer_gen;
-        case 0xA8:      src_reg = regAC;     dst_reg = regY;        goto reg_transfer_gen;
-        case 0xAA:      src_reg = regAC;     dst_reg = regX;        goto reg_transfer_gen;
+        case iTXA:      src_reg = regX;      dst_reg = regAC;       goto reg_transfer_gen;
+        case iTYA:      src_reg = regY;      dst_reg = regAC;       goto reg_transfer_gen;
+        case iTAY:      src_reg = regAC;     dst_reg = regY;        goto reg_transfer_gen;
+        case iTAX:      src_reg = regAC;     dst_reg = regX;        goto reg_transfer_gen;
         case iTSX:      src_reg = regSP;     dst_reg = regX;        goto reg_transfer_gen;
 
         reg_transfer_gen: {
@@ -817,13 +819,13 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             return NO_EXIT;
         }
 
-        case 0xED:  addr_func = gen_abs_mode;           goto sub_gen;
-        case 0xE5:  addr_func = gen_zero_page_mode;     goto sub_gen;
-        case 0xE1:  addr_func = gen_indirect_X_mode;    goto sub_gen;
-        case 0xF1:  addr_func = gen_Y_indirect_mode;    goto sub_gen;
-        case 0xF5:  addr_func = gen_zero_page_X_mode;   goto sub_gen;
-        case 0xFD:  addr_func = gen_Xabs_mode;          goto sub_gen;
-        case 0xF9:  addr_func = gen_Yabs_mode;          goto sub_gen;
+        case iSBC_abs:   addr_func = gen_abs_mode;           goto sub_gen;
+        case iSBC_absX:  addr_func = gen_Xabs_mode;          goto sub_gen;
+        case iSBC_absY:  addr_func = gen_Yabs_mode;          goto sub_gen;
+        case iSBC_zpg:   addr_func = gen_zero_page_mode;     goto sub_gen;
+        case iSBC_zpgX:  addr_func = gen_zero_page_X_mode;   goto sub_gen;
+        case iSBC_Xind:  addr_func = gen_indirect_X_mode;    goto sub_gen;
+        case iSBC_indY:  addr_func = gen_Y_indirect_mode;    goto sub_gen;
 
         sub_gen: {
             TCGv tmp2 = tcg_temp_local_new();
@@ -1312,28 +1314,29 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
 
 #ifdef DEBUG_6502
         // These are phony instructions to help debugging...
-        case 0xAF:
+        // In a real 6502 these would be undocumented KIL instructions (they would stop the CPU)
+        case 0x12:
             gen_helper_printnum(reg_last_res_Z);
             tcg_gen_movi_tl(regTMP, ' ');
             gen_helper_printchar(regTMP);
-        case 0xBF:
+        case 0x32:
             gen_helper_printnum(reg_last_res_CN);
             tcg_gen_movi_tl(regTMP, ' ');
             gen_helper_printchar(regTMP);
             return NO_EXIT;
-        case 0xCF:  // Read number from stdin
+        case 0x52:  // Read number from stdin
             gen_helper_getnum(regAC);
             return NO_EXIT;
-        case 0xDF:  // Print number to stdout
+        case 0x72:  // Print number to stdout
             gen_helper_printnum(regAC);
             return NO_EXIT;
-        case 0xEF:  // Read char from stdin
+        case 0x92:  // Read char from stdin
             gen_helper_getchar(regAC);
             return NO_EXIT;
-        case 0xFF:  // Write to stdout
+        case 0xB2:  // Write to stdout
             gen_helper_printchar(regAC);
             return NO_EXIT;
-        case 0x0F:  // Shutdown VM
+        case 0xD2:  // Shutdown VM
             gen_helper_shutdown();
             return EXIT_PC_STALE;
         default:
@@ -1486,7 +1489,7 @@ CPU6502State *cpu_6502_init (const char *cpu_model)
     tlb_flush(env, 1);
 
     env->exception_index = -1;
-    env->sr = flagUNU;    // Unused flag is always 1
+    env->sr = (flagUNU | flagI);    // Unused flag is always 1, interrupts start disabled
     env->last_res_Z = 1;  // CPU must start with flag Z set to 0, so this can't be 0
 
     qemu_init_vcpu(env);

@@ -747,7 +747,7 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
          */
 
         // Immediate Subtract
-        case iSBC_imm: {
+        case iSBC_imm: sbc_imm_gen: {
             int lbl_decimal = gen_new_label();
             int lbl_cont = gen_new_label();
 
@@ -1438,6 +1438,53 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t *paddr)
             return NO_EXIT;
         }
 
+        case 0xEB:      goto sbc_imm_gen;   // Same as SBC #imm
+
+
+        // ANC - AND byte with accumulator. If result is negative then carry is set. Status flags: N, Z, C
+        case 0x0B:      case 0x2B: {
+            tcg_gen_andi_tl(regAC, regAC, get_from_code(paddr));
+            tcg_gen_andi_tl(regTMP, regAC, 0x80);
+            tcg_gen_shli_tl(regTMP, regTMP, 1);
+            tcg_gen_or_tl(reg_last_res_CN, regAC, regTMP);  // Save result for N and C flag computation
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);          // Save result for Z flag computation
+            return NO_EXIT;
+        }
+
+
+        // ASR - AND byte with accumulator, then shift right one bit in accumulator. Status flags: N, Z, C
+        case 0x4B: {
+            tcg_gen_andi_tl(regAC, regAC, get_from_code(paddr));
+            tcg_gen_andi_tl(reg_last_res_CN, regAC, 0x01);            // Save first bit to carry
+            tcg_gen_shli_tl(reg_last_res_CN, reg_last_res_CN, 8);
+            tcg_gen_shri_tl(regAC, regAC, 1);                         // Shift it
+            // Because of the shift right, N will always be 0, so we don't need to save AC to calculate N
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);                    // Save result for Z flag computation
+            return NO_EXIT;
+        }
+
+        // SBX - AND X register with accumulator and store result in X register, then subtract byte from X register (without borrow). Status flags: N, Z, C
+        case 0xCB: {
+            tcg_gen_and_tl(regX, regAC, regX);
+            tcg_gen_subi_tl(regX, regX, get_from_code(paddr));
+            tcg_gen_andi_tl(reg_last_res_CN, regX, 0x01FF);             // Save result for N and C flag computation
+            tcg_gen_xori_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);  // Carry is borrow
+            tcg_gen_ext8u_tl(regX, regX);                               // Truncate result to 8 bits
+            tcg_gen_mov_tl(reg_last_res_Z, regX);                       // Save result for Z flag computation
+            return NO_EXIT;
+        }
+
+        // LAS - AND memory with stack pointer, transfer result to accumulator, X register and stack pointer. Status flags: N, Z
+        case 0xBB: {
+            *paddr = gen_Yabs_mode(regAC, *paddr);
+            tcg_gen_and_tl(regAC, regSP, regAC);
+            tcg_gen_mov_tl(regSP, regAC);
+            tcg_gen_mov_tl(regX, regAC);
+            tcg_gen_andi_tl(reg_last_res_CN, reg_last_res_CN, 0x0100);    // Save result for N flag computation
+            tcg_gen_or_tl(reg_last_res_CN, reg_last_res_CN, regAC);
+            tcg_gen_mov_tl(reg_last_res_Z, regAC);                         // Save result for Z flag computation
+            return NO_EXIT;
+        }
 
     }
 }
